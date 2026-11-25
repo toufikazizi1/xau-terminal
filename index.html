@@ -80,7 +80,7 @@ textarea{width:100%;height:260px;background:#0a0a0c;color:#d1d4dc;border:1px sol
 .wr .a{flex:1}.wr .a b{font-size:16px}.wr .a div{color:var(--mu);font-size:12px;margin-top:2px}
 .wr .p{text-align:left;direction:ltr}.wr .p b{font-size:16px;display:block}
 .up{color:var(--up)}.dn{color:var(--dn)}
-@media(min-width:900px){#sheet{left:50%;right:auto;width:560px;transform:translateX(-50%);animation:none;border-radius:18px}}
+html.wide #sheet{left:50%;right:auto;width:560px;transform:translateX(-50%);animation:none;border-radius:18px}
 </style>
 </head>
 <body>
@@ -142,6 +142,10 @@ textarea{width:100%;height:260px;background:#0a0a0c;color:#d1d4dc;border:1px sol
 
 <script>
 'use strict';
+let UK=1;
+function fitScale(){const w=innerWidth,h=innerHeight;UK=(navigator.maxTouchPoints>0&&w>560&&w<1500)?w/412:1;
+  document.documentElement.classList.toggle('wide',UK===1&&w>=900);const b=document.body.style;if(UK>1){b.width=(w/UK)+'px';b.height=(h/UK)+'px';b.transform='scale('+UK+')';b.transformOrigin='0 0';b.position='absolute';b.left='0';b.top='0'}else{b.width='';b.height='';b.transform='';b.position='';}}
+fitScale();
 /* ================= الإعدادات ================= */
 const SYMS=[
   {id:'GOLD',name:'الذهب XAU/USD',coin:'xyz:GOLD',step:0.1,dec:2,base:4060},
@@ -230,6 +234,8 @@ function fillTo(t,p){
   while(last.t+ms<=t){const nb=newBar(last.t+ms,last.c);B.push(nb);last=nb;if(B.length>6000)B.shift()}
 }
 function addTrade(t,p,sz,buy){
+  {const B0=S.bars;if(B0.length&&t<B0[B0.length-1].t)return;
+   if(B0.length&&!S.demo){const lc=B0[B0.length-1].c;if(Math.abs(p-lc)/lc>0.01)return;if(bkPx&&Date.now()-lastHL<20000&&Math.abs(p-(bkPx+offs))/p>0.004&&Date.now()-lastBk<10000)return}}
   const n0=S.bars.length,wasEnd=S.right>=n0-1+2;
   fillTo(t,p);
   if(wasEnd&&S.bars.length>n0)S.right+=S.bars.length-n0;
@@ -277,15 +283,16 @@ async function loadHistory(){
         let n=0;for(let i=0;i<out.length;i++){const c=out[i];if(c.v>0&&!c.flat)continue;const k=km.get(c.t);if(!k)continue;
           const o=k[0]+off,h=k[1]+off,l=k[2]+off,cl=k[3]+off,v=k[4]*sc;const rg=h-l,bf=k[5]!=null?k[5]/(v||1):(rg>0?(cl-l)/rg:0.5);
           out[i]={t:c.t,o,h,l,c:cl,v,bv:v*bf,sv:v*(1-bf),lv:{},est:true};n++}
+        for(let i=0;i<out.length;i++){const c=out[i],k=km.get(c.t);if(!k||c.lv&&Object.keys(c.lv).length)continue;const tol=c.c*0.0008;const kh=k[1]+off+tol,kl=k[2]+off-tol;if(c.h>kh)c.h=kh;if(c.l<kl)c.l=kl;c.o=Math.min(Math.max(c.o,c.l),c.h);c.c=Math.min(Math.max(c.c,c.l),c.h)}
         S.bnFill=n;S.bnOff=off}}catch(e){S.bnErr=String(e)}
     mergeFlow(out);
     if(out.length){const live=S.bars.filter(b=>b.t>out[out.length-1].t);S.bars=out.concat(live);S.gotData=true;goLast();dirty=true}
   }catch(e){}
 }
-let midHL=0,lastBook=0,offOK=false,lastHL=0,hlPx=0,bkPx=0,offs=0,xw=[];
+let lastBk=0,midHL=0,lastBook=0,offOK=false,lastHL=0,hlPx=0,bkPx=0,offs=0,xw=[];
 const XS={GOLD:{ok:'XAUT-USDT-SWAP'}};
 function xsrc(){return XS[S.sym.id]||{ok:S.sym.id+'-USDT-SWAP'}}
-function backup(px,sz,buy,src){bkPx=px;const ref=midHL||hlPx;if(ref&&Date.now()-lastBook<4000){const d=ref-px;offs=offOK?offs*0.97+d*0.03:d;offOK=true}const hlFresh=Date.now()-lastHL<3000;if(hlFresh)return;if(S.bars.length){const lc=S.bars[S.bars.length-1].c;if(Math.abs(px+offs-lc)/lc>0.004)return}if(S.demo||!S.bars.length)return;if(!offOK&&!S._oi){offs=S.bars[S.bars.length-1].c-px;S._oi=true}addTrade(Date.now(),px+offs,sz,buy);S.src=src;setStatus('live','مباشر · '+src+' (احتياطي)')}
+function backup(px,sz,buy,src){bkPx=px;lastBk=Date.now();const ref=midHL||hlPx;if(ref&&Date.now()-lastBook<4000){const d=ref-px;offs=offOK?offs*0.97+d*0.03:d;offOK=true}const hlFresh=Date.now()-lastHL<3000;if(hlFresh)return;if(S.bars.length){const lc=S.bars[S.bars.length-1].c;if(Math.abs(px+offs-lc)/lc>0.004)return}if(S.demo||!S.bars.length)return;if(!offOK&&!S._oi){offs=S.bars[S.bars.length-1].c-px;S._oi=true}addTrade(Date.now(),px+offs,sz,buy);S.src=src;setStatus('live','مباشر · '+src+' (احتياطي)')}
 function closeX(){for(const w of xw){try{w.onclose=null;w.close()}catch(e){}}xw=[]}
 function openX(tok){closeX();openXone(tok)}
 function openXone(tok){
@@ -327,7 +334,7 @@ function connect(){
   ws.onopen=()=>{
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'trades',coin:S.sym.coin}}));
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'l2Book',coin:S.sym.coin}}));
-    setStatus('live','مباشر · Hyperliquid v8');lastMsg=Date.now();
+    setStatus('live','مباشر · Hyperliquid v9');lastMsg=Date.now();
     clearInterval(pingT);pingT=setInterval(()=>{try{ws.send(JSON.stringify({method:'ping'}))}catch(e){}},25000);
     gotTimer=setTimeout(()=>{if(tok===S.tok&&!S.gotData)startDemo(true)},9000);
   };
@@ -428,8 +435,8 @@ let W=0,H=0,DPR=1,axisW=78,axisH=22,plotW=0,mainH=0,sub1H=0,sub2H=0,dirty=true;
 let yMin=0,yMax=1,i0=0,i1=0;
 const GRN='#26a69a',RED='#ef5350';
 function resize(){
-  DPR=window.devicePixelRatio||1;const r=cv.getBoundingClientRect();
-  W=r.width;H=r.height;cv.width=W*DPR;cv.height=H*DPR;cx.setTransform(DPR,0,0,DPR,0,0);dirty=true;
+  fitScale();DPR=window.devicePixelRatio||1;const r=cv.getBoundingClientRect();
+  W=r.width/UK;H=r.height/UK;cv.width=r.width*DPR;cv.height=r.height*DPR;cx.setTransform(DPR*UK,0,0,DPR*UK,0,0);dirty=true;
 }
 function xOf(i){return plotW-(S.right-i)*S.barW}
 function iOfX(x){return S.right-(plotW-x)/S.barW}
@@ -716,13 +723,13 @@ function drawCross(){
 const ptrs=new Map();let panStart=null,pinch=null,tapT=0,moved=0;
 cv.addEventListener('pointerdown',e=>{
   cv.setPointerCapture(e.pointerId);const r=cv.getBoundingClientRect();
-  ptrs.set(e.pointerId,{x:e.clientX-r.left,y:e.clientY-r.top});moved=0;tapT=Date.now();
+  ptrs.set(e.pointerId,{x:(e.clientX-r.left)/UK,y:(e.clientY-r.top)/UK});moved=0;tapT=Date.now();
   const p=ptrs.get(e.pointerId);
   if(ptrs.size===2){const a=[...ptrs.values()];pinch={d:Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y),bw:S.barW};panStart=null}
   else panStart={x:p.x,y:p.y,right:S.right,axis:p.x>plotW,yz:S.yZoom};
 });
 cv.addEventListener('pointermove',e=>{
-  const r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
+  const r=cv.getBoundingClientRect(),x=(e.clientX-r.left)/UK,y=(e.clientY-r.top)/UK;
   if(ptrs.has(e.pointerId))ptrs.set(e.pointerId,{x,y});
   if(pinch&&ptrs.size===2){const a=[...ptrs.values()];const d=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);S.barW=Math.max(1.5,Math.min(140,pinch.bw*d/pinch.d));moved=99;dirty=true;return}
   if(panStart&&ptrs.has(e.pointerId)){
@@ -744,7 +751,7 @@ function endPtr(e){
 cv.addEventListener('pointerup',endPtr);cv.addEventListener('pointercancel',endPtr);
 cv.addEventListener('pointerleave',e=>{if(e.pointerType==='mouse'){S.cross=null;dirty=true}});
 cv.addEventListener('wheel',e=>{
-  e.preventDefault();const r=cv.getBoundingClientRect(),x=e.clientX-r.left;
+  e.preventDefault();const r=cv.getBoundingClientRect(),x=(e.clientX-r.left)/UK;
   const iAt=iOfX(x);
   if(x>plotW){S.yZoom=Math.max(0.15,Math.min(8,S.yZoom*(e.deltaY>0?1.1:0.9)))}
   else{S.barW=Math.max(1.5,Math.min(140,S.barW*(e.deltaY>0?0.9:1.1)));S.right=iAt+(plotW-x)/S.barW}
