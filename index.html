@@ -144,10 +144,10 @@ textarea{width:100%;height:260px;background:#0a0a0c;color:#d1d4dc;border:1px sol
 'use strict';
 /* ================= الإعدادات ================= */
 const SYMS=[
-  {id:'GOLD',name:'الذهب XAU/USD',coin:'xyz:GOLD',step:0.5,dec:2,base:4060},
-  {id:'BTC',name:'BTC/USD',coin:'BTC',step:10,dec:1,base:90000},
-  {id:'ETH',name:'ETH/USD',coin:'ETH',step:0.5,dec:2,base:3000},
-  {id:'SOL',name:'SOL/USD',coin:'SOL',step:0.05,dec:3,base:140}
+  {id:'GOLD',name:'الذهب XAU/USD',coin:'xyz:GOLD',step:0.1,dec:2,base:4060},
+  {id:'BTC',name:'BTC/USD',coin:'BTC',step:1,dec:1,base:90000},
+  {id:'ETH',name:'ETH/USD',coin:'ETH',step:0.1,dec:2,base:3000},
+  {id:'SOL',name:'SOL/USD',coin:'SOL',step:0.01,dec:3,base:140}
 ];
 const TFS=[[10,'10s'],[30,'30s'],[60,'1m'],[300,'5m'],[900,'15m'],[3600,'1h']];
 const HLINT={60:'1m',300:'5m',900:'15m',3600:'1h'};
@@ -259,10 +259,14 @@ async function loadHistory(){
     const out=[];
     for(const c of j){const o=+c.o,h=+c.h,l=+c.l,cl=+c.c,v=+c.v;const rg=h-l;const bf=rg>0?(cl-l)/rg:0.5;
       out.push({t:+c.t,o,h,l,c:cl,v,bv:v*bf,sv:v*(1-bf),lv:{},est:true})}
+    const fl=[];for(const c of out){if(fl.length){let p=fl[fl.length-1];while(p.t+tfMs()<c.t&&fl.length<8000){p=newBar(p.t+tfMs(),p.c);p.est=true;fl.push(p)}}fl.push(c)}
+    out.length=0;for(const c of fl)out.push(c);
     if(out.length){const live=S.bars.filter(b=>b.t>out[out.length-1].t);S.bars=out.concat(live);S.gotData=true;goLast();dirty=true}
   }catch(e){}
 }
-let ws=null,gotTimer=null;
+let ws=null,gotTimer=null,pingT=null,lastMsg=Date.now();
+setInterval(()=>{if(!S.demo&&ws&&Date.now()-lastMsg>20000){lastMsg=Date.now();connect()}},5000);
+setInterval(()=>{if(!S.demo&&S.bars.length){const n0=S.bars.length,wasEnd=S.right>=n0-1+2;fillTo(Date.now(),S.bars[n0-1].c);if(wasEnd&&S.bars.length>n0)S.right+=S.bars.length-n0;dirty=true}},1000);
 function setStatus(k,t){$('dot').className=k;$('stxt').textContent=t}
 function connect(){
   const tok=S.tok;
@@ -274,12 +278,12 @@ function connect(){
   ws.onopen=()=>{
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'trades',coin:S.sym.coin}}));
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'l2Book',coin:S.sym.coin}}));
-    for(const o of SYMS)if(o.coin!==S.sym.coin)ws.send(JSON.stringify({method:'subscribe',subscription:{type:'trades',coin:o.coin}}));
-    setStatus('live','مباشر · Hyperliquid');
+    setStatus('live','مباشر · Hyperliquid');lastMsg=Date.now();
+    clearInterval(pingT);pingT=setInterval(()=>{try{ws.send(JSON.stringify({method:'ping'}))}catch(e){}},25000);
     gotTimer=setTimeout(()=>{if(tok===S.tok&&!S.gotData)startDemo(true)},9000);
   };
   ws.onmessage=e=>{
-    let m;try{m=JSON.parse(e.data)}catch(x){return}
+    lastMsg=Date.now();let m;try{m=JSON.parse(e.data)}catch(x){return}
     if(m.channel==='trades'){for(const t of m.data){if(t.coin===S.sym.coin)addTrade(+t.time,+t.px,+t.sz,t.side==='B');else{const o=SYMS.find(x=>x.coin===t.coin);if(o)S.last[o.id]=+t.px}}}
     else if(m.channel==='l2Book'){const L=m.data.levels;pushBook(L[0].map(x=>[+x.px,+x.sz]),L[1].map(x=>[+x.px,+x.sz]))}
   };
@@ -471,7 +475,7 @@ function drawHeat(){
 let prof=null;
 function buildProfile(){
   const B=S.bars,st=S.sym.step;
-  const binSz=Math.max(st,Math.round((yMax-yMin)/46/st)*st);
+  const binSz=Math.max(st,Math.round((yMax-yMin)/(mainH/3)/st)*st);
   const bins=new Map();
   const add=(p,b,s)=>{const k=Math.floor(p/binSz+1e-9);const o=bins.get(k)||[0,0];o[0]+=b;o[1]+=s;bins.set(k,o)};
   for(let i=i0;i<=i1;i++){const b=B[i];if(!b)continue;
@@ -489,12 +493,12 @@ function buildProfile(){
 }
 function drawProfile(){
   buildProfile();const P=prof;if(!P.arr.length)return;
-  const pw=Math.min(120,plotW*0.2);
+  const pw=Math.min(90,plotW*0.16);
   if(S.sh.prof){
     // value area band
     cx.fillStyle='rgba(41,98,255,.06)';cx.fillRect(0,yOf(P.va[1]),plotW,yOf(P.va[0])-yOf(P.va[1]));
     for(const a of P.arr){
-      const y1=yOf(a.p+P.binSz),y0=yOf(a.p),h=Math.max(1,y0-y1-1);
+      const y1=yOf(a.p+P.binSz),y0=yOf(a.p),h=Math.max(1,y0-y1-(y0-y1>5?1:0));
       const wb=a.b/P.mx*pw,ws=a.s/P.mx*pw;
       cx.fillStyle='rgba(38,166,154,.55)';cx.fillRect(plotW-wb,y1,wb,h);
       cx.fillStyle='rgba(239,83,80,.55)';cx.fillRect(plotW-wb-ws,y1,ws,h);
@@ -925,7 +929,25 @@ function showView(v){
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
   if(v==='watch')buildWatch();else{resize();dirty=true}
 }
-async function loadDayOpen(){
+async function hl(b){const r=await fetch('https://api.hyperliquid.xyz/info',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});return r.json()}
+function stepOf(px,szd){const sig=Math.pow(10,Math.floor(Math.log10(px))-4);const mx=Math.pow(10,-(6-szd));return Math.max(sig,mx)}
+let metaOK=false;
+async function loadSymbols(){
+  for(const dex of['','xyz']){
+    try{const j=await hl(dex?{type:'metaAndAssetCtxs',dex}:{type:'metaAndAssetCtxs'});const U=j[0].universe,C=j[1];
+      U.forEach((u,i)=>{if(u.isDelisted)return;const c=C[i]||{};const px=+(c.midPx||c.markPx||0);if(!px)return;
+        const coin=u.name,id=coin.replace(/^xyz:/,'');
+        let y=SYMS.find(z=>z.coin===coin);
+        if(!y){const st=stepOf(px,u.szDecimals||0);y={id,name:id+'/USD'+(dex?' (xyz)':''),coin,step:st,dec:Math.max(0,Math.min(6,Math.ceil(-Math.log10(st)))),base:px};SYMS.push(y)}
+        S.last[y.id]=px;if(+c.prevDayPx)S.dayOpen[y.id]=+c.prevDayPx})}catch(e){}
+  }
+  metaOK=true;
+}
+async function pollPrices(){if(S.demo||!metaOK)return;
+  for(const dex of['','xyz']){try{const m=await hl(dex?{type:'allMids',dex}:{type:'allMids'});for(const k in m){const y=SYMS.find(z=>z.coin===k);if(y&&y.id!==S.sym.id)S.last[y.id]=+m[k]}}catch(e){}}
+}
+setInterval(pollPrices,4000);
+async function loadDayOpen(){await loadSymbols();if(metaOK)return;
   for(const y of SYMS){
     if(S.demo){S.dayOpen[y.id]=y.base;continue}
     try{const r=await fetch('https://api.hyperliquid.xyz/info',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'candleSnapshot',req:{coin:y.coin,interval:'1d',startTime:Date.now()-3*864e5,endTime:Date.now()}})});
