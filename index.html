@@ -260,6 +260,9 @@ async function altKlines(iv){
   try{const bar={'1m':'1m','5m':'5m','15m':'15m','1h':'1H','4h':'4H','1d':'1D'}[iv];
     const r=await fetch('https://www.okx.com/api/v5/market/candles?instId='+x.ok+'&bar='+bar+'&limit=300');const j=await r.json();
     if(j&&Array.isArray(j.data)&&j.data.length){for(const k of j.data)m.set(+k[0],[+k[1],+k[2],+k[3],+k[4],+k[5],null]);S.altSrc='OKX'}}catch(e){S.bnErr=String(e)}
+  if(!m.size){try{const iv2={'1m':'1m','5m':'5m','15m':'15m','1h':'1h','4h':'4h','1d':'1d'}[iv];
+    const r=await fetch('https://api.gateio.ws/api/v4/futures/usdt/candlesticks?contract='+(x.ok.replace('-USDT-SWAP','')+'_USDT')+'&interval='+iv2+'&limit=300');const j=await r.json();
+    if(Array.isArray(j)&&j.length){for(const k of j)m.set(+k.t*1000,[+k.o,+k.h,+k.l,+k.c,+k.v,null]);S.altSrc='Gate'}}catch(e){}}
   return m;
 }
 async function loadHistory(){
@@ -284,8 +287,9 @@ async function loadHistory(){
           const o=k[0]+off,h=k[1]+off,l=k[2]+off,cl=k[3]+off,v=k[4]*sc;const rg=h-l,bf=k[5]!=null?k[5]/(v||1):(rg>0?(cl-l)/rg:0.5);
           out[i]={t:c.t,o,h,l,c:cl,v,bv:v*bf,sv:v*(1-bf),lv:{},est:true};n++}
         for(let i=0;i<out.length;i++){const c=out[i],k=km.get(c.t);if(!k||c.lv&&Object.keys(c.lv).length)continue;const tol=c.c*0.0008;const kh=k[1]+off+tol,kl=k[2]+off-tol;if(c.h>kh)c.h=kh;if(c.l<kl)c.l=kl;c.o=Math.min(Math.max(c.o,c.l),c.h);c.c=Math.min(Math.max(c.c,c.l),c.h)}
-        S.bnFill=n;S.bnOff=off}}catch(e){S.bnErr=String(e)}
+        S.bnFill=n;S.bnOff=off;S.volSc=sc}}catch(e){S.bnErr=String(e)}
     mergeFlow(out);
+    setTimeout(()=>{if(tok===S.tok&&!S.demo&&$('stxt').textContent.indexOf('OKX')<0&&$('stxt').textContent.indexOf('مباشر')===0)$('stxt').textContent+=' · '+(S.altSrc?S.altSrc+' ✓'+(S.bnFill||0):'مصدر ثانٍ ✗')},400);
     if(out.length){const live=S.bars.filter(b=>b.t>out[out.length-1].t);S.bars=out.concat(live);S.gotData=true;goLast();dirty=true}
   }catch(e){}
 }
@@ -334,7 +338,7 @@ function connect(){
   ws.onopen=()=>{
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'trades',coin:S.sym.coin}}));
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'l2Book',coin:S.sym.coin}}));
-    setStatus('live','مباشر · Hyperliquid v9');lastMsg=Date.now();
+    setStatus('live','مباشر · Hyperliquid v10');lastMsg=Date.now();
     clearInterval(pingT);pingT=setInterval(()=>{try{ws.send(JSON.stringify({method:'ping'}))}catch(e){}},25000);
     gotTimer=setTimeout(()=>{if(tok===S.tok&&!S.gotData)startDemo(true)},9000);
   };
@@ -584,14 +588,15 @@ function drawProfile(){
   }
 }
 function drawSeries(){
-  const B=S.bars,bw=S.barW,body=Math.max(1,bw*0.7);
+  const B=S.bars,bw=S.barW,body=Math.max(1.5,bw*0.78);
   if(S.ct==='line'){cx.beginPath();cx.strokeStyle='#2962ff';cx.lineWidth=1.6;let st=false;
     for(let i=i0;i<=i1;i++){const x=xOf(i),y=yOf(B[i].c);if(!st){cx.moveTo(x,y);st=true}else cx.lineTo(x,y)}cx.stroke();return}
   for(let i=i0;i<=i1;i++){
     const b=B[i],x=xOf(i),up=b.c>=b.o,col=up?GRN:RED;
     if(S.ct==='fp'&&bw>=46){drawFP(b,x,i);continue}
     cx.strokeStyle=col;cx.fillStyle=col;cx.lineWidth=1;
-    cx.beginPath();cx.moveTo(Math.round(x)+.5,yOf(b.h));cx.lineTo(Math.round(x)+.5,yOf(b.l));cx.stroke();
+    const xc=x,wk=Math.max(1,Math.round(bw>=6?1.4:1));cx.lineWidth=wk;
+    cx.beginPath();cx.moveTo(xc,yOf(b.h));cx.lineTo(xc,yOf(b.l));cx.stroke();
     if(S.ct==='bar'){cx.beginPath();cx.moveTo(x-body/2,yOf(b.o));cx.lineTo(x,yOf(b.o));cx.moveTo(x,yOf(b.c));cx.lineTo(x+body/2,yOf(b.c));cx.stroke()}
     else{const y0=yOf(Math.max(b.o,b.c)),y1=yOf(Math.min(b.o,b.c));cx.fillRect(x-body/2,y0,body,Math.max(1,y1-y0))}
   }
@@ -1015,6 +1020,14 @@ async function pollPrices(){if(S.demo||!metaOK)return;
   for(const dex of['','xyz']){try{const m=await hl(dex?{type:'allMids',dex}:{type:'allMids'});for(const k in m){const y=SYMS.find(z=>z.coin===k);if(y&&y.id!==S.sym.id)S.last[y.id]=+m[k]}}catch(e){}}
 }
 setInterval(pollPrices,4000);
+let polling=false;
+async function pollAlt(){if(S.demo||polling||!S.bars.length||Date.now()-lastHL<5000)return;polling=true;
+  try{const iv=HLINT[S.tf];if(!iv)return;const tok=S.tok;const km=await altKlines(iv);if(tok!==S.tok||!km.size)return;
+    const B=S.bars;let off=S.bnOff;if(off==null){const lb=B[B.length-1],kk=km.get(lb.t);if(!kk)return;off=lb.c-kk[3];S.bnOff=off}
+    for(let i=Math.max(0,B.length-4);i<B.length;i++){const b=B[i],k=km.get(b.t);if(!k)continue;if(b.lv&&Object.keys(b.lv).length)continue;
+      b.o=k[0]+off;b.h=k[1]+off;b.l=k[2]+off;b.c=k[3]+off;if(!b.v)b.v=k[4]*(S.volSc||1);if(b.bv+b.sv===0){b.bv=b.v/2;b.sv=b.v/2}b.est=true;S.last[S.sym.id]=b.c}
+    dirty=true}catch(e){}finally{polling=false}}
+setInterval(pollAlt,6000);
 async function loadDayOpen(){await loadSymbols();if(metaOK)return;
   for(const y of SYMS){
     if(S.demo){S.dayOpen[y.id]=y.base;continue}
