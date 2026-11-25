@@ -259,15 +259,23 @@ async function loadHistory(){
     const out=[];
     for(const c of j){const o=+c.o,h=+c.h,l=+c.l,cl=+c.c,v=+c.v;const rg=h-l;const bf=rg>0?(cl-l)/rg:0.5;
       out.push({t:+c.t,o,h,l,c:cl,v,bv:v*bf,sv:v*(1-bf),lv:{},est:true})}
-    const fl=[];for(const c of out){if(fl.length){let p=fl[fl.length-1];while(p.t+tfMs()<c.t&&fl.length<8000){p=newBar(p.t+tfMs(),p.c);p.est=true;fl.push(p)}}fl.push(c)}
+    const fl=[];for(const c of out){if(fl.length){let p=fl[fl.length-1];while(p.t+tfMs()<c.t&&fl.length<8000){p=newBar(p.t+tfMs(),p.c);p.est=true;p.flat=true;fl.push(p)}}fl.push(c)}
     out.length=0;for(const c of fl)out.push(c);
+    try{const kr=await fetch('https://fapi.binance.com/fapi/v1/klines?symbol='+xsrc().bn.toUpperCase()+'&interval='+iv+'&limit=500');const K=await kr.json();
+      if(Array.isArray(K)&&K.length){const km=new Map();for(const k of K)km.set(+k[0],k);
+        const df=[];for(const c of out){const k=km.get(c.t);if(k&&!c.flat&&c.v>0)df.push(c.c-(+k[4]))}
+        df.sort((a,b)=>a-b);const off=df.length?df[df.length>>1]:(out.length&&K.length?out[out.length-1].c-(+K[K.length-1][4]):0);
+        let n=0;for(let i=0;i<out.length;i++){const c=out[i];if(c.v>0&&!c.flat)continue;const k=km.get(c.t);if(!k)continue;
+          const o=+k[1]+off,h=+k[2]+off,l=+k[3]+off,cl=+k[4]+off,v=+k[5],tb=+k[9];
+          out[i]={t:c.t,o,h,l,c:cl,v,bv:tb,sv:Math.max(0,v-tb),lv:{},est:true};n++}
+        S.bnFill=n;S.bnOff=off}}catch(e){}
     if(out.length){const live=S.bars.filter(b=>b.t>out[out.length-1].t);S.bars=out.concat(live);S.gotData=true;goLast();dirty=true}
   }catch(e){}
 }
-let lastHL=0,hlPx=0,bkPx=0,offs=0,xw=[];
+let midHL=0,lastBook=0,offOK=false,lastHL=0,hlPx=0,bkPx=0,offs=0,xw=[];
 const XS={GOLD:{bn:'xauusdt',by:'XAUTUSDT'},BTC:{bn:'btcusdt',by:'BTCUSDT'},ETH:{bn:'ethusdt',by:'ETHUSDT'},SOL:{bn:'solusdt',by:'SOLUSDT'}};
 function xsrc(){return XS[S.sym.id]||{bn:S.sym.id.toLowerCase()+'usdt',by:S.sym.id+'USDT'}}
-function backup(px,sz,buy,src){bkPx=px;const hlFresh=Date.now()-lastHL<8000;if(hlFresh){if(hlPx)offs=hlPx-px;return}if(S.demo||!S.bars.length)return;if(!hlPx&&!S._oi){offs=S.bars[S.bars.length-1].c-px;S._oi=true}addTrade(Date.now(),px+offs,sz,buy);S.src=src;setStatus('live','مباشر · '+src+' (احتياطي)')}
+function backup(px,sz,buy,src){bkPx=px;const ref=midHL||hlPx;if(ref&&Date.now()-lastBook<4000){const d=ref-px;offs=offOK?offs*0.97+d*0.03:d;offOK=true}const hlFresh=Date.now()-lastHL<3000;if(hlFresh)return;if(S.bars.length){const lc=S.bars[S.bars.length-1].c;if(Math.abs(px+offs-lc)/lc>0.004)return}if(S.demo||!S.bars.length)return;if(!offOK&&!S._oi){offs=S.bars[S.bars.length-1].c-px;S._oi=true}addTrade(Date.now(),px+offs,sz,buy);S.src=src;setStatus('live','مباشر · '+src+' (احتياطي)')}
 function closeX(){for(const w of xw){try{w.onclose=null;w.close()}catch(e){}}xw=[]}
 function openX(tok){
   closeX();const x=xsrc();
@@ -290,19 +298,19 @@ function connect(){
   if(ws){try{ws.onclose=null;ws.close()}catch(e){}ws=null}
   clearTimeout(gotTimer);
   if(S.demo){closeX();setStatus('demo','وضع تجريبي (بيانات وهمية)');return}
-  hlPx=0;lastHL=0;offs=0;S._oi=false;setStatus('','يتصل...');openX(tok);
+  hlPx=0;lastHL=0;offs=0;offOK=false;midHL=0;S._oi=false;setStatus('','يتصل...');openX(tok);
   try{ws=new WebSocket('wss://api.hyperliquid.xyz/ws')}catch(e){startDemo(true);return}
   ws.onopen=()=>{
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'trades',coin:S.sym.coin}}));
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'l2Book',coin:S.sym.coin}}));
-    setStatus('live','مباشر · Hyperliquid v3');lastMsg=Date.now();
+    setStatus('live','مباشر · Hyperliquid v4');lastMsg=Date.now();
     clearInterval(pingT);pingT=setInterval(()=>{try{ws.send(JSON.stringify({method:'ping'}))}catch(e){}},25000);
     gotTimer=setTimeout(()=>{if(tok===S.tok&&!S.gotData)startDemo(true)},9000);
   };
   ws.onmessage=e=>{
     lastMsg=Date.now();let m;try{m=JSON.parse(e.data)}catch(x){return}
     if(m.channel==='trades'){for(const t of m.data){if(t.coin===S.sym.coin){lastHL=Date.now();hlPx=+t.px;}if(t.coin===S.sym.coin)addTrade(+t.time,+t.px,+t.sz,t.side==='B');else{const o=SYMS.find(x=>x.coin===t.coin);if(o)S.last[o.id]=+t.px}}}
-    else if(m.channel==='l2Book'){const L=m.data.levels;pushBook(L[0].map(x=>[+x.px,+x.sz]),L[1].map(x=>[+x.px,+x.sz]))}
+    else if(m.channel==='l2Book'){const L=m.data.levels;if(L[0][0]&&L[1][0]){midHL=(+L[0][0].px+ +L[1][0].px)/2;lastBook=Date.now()}pushBook(L[0].map(x=>[+x.px,+x.sz]),L[1].map(x=>[+x.px,+x.sz]))}
   };
   ws.onclose=()=>{if(tok===S.tok&&!S.demo){setStatus('err','انقطع الاتصال، يعيد...');setTimeout(()=>{if(tok===S.tok)connect()},2500)}};
   ws.onerror=()=>{};
