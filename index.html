@@ -28,7 +28,7 @@ canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
 #stxt{color:var(--mu);font-size:13px}
 #hprice{font:700 22px inherit;margin:1px 0}
 #ohlc{font-size:13px;color:var(--mu);margin-bottom:4px;text-shadow:0 0 3px #000}
-.leg{display:flex;align-items:center;gap:8px;color:#c8c8d0;font-size:15px;height:36px;text-shadow:0 0 3px #000}
+.leg{display:flex;align-items:center;gap:8px;color:#c8c8d0;font-size:15px;height:36px;text-shadow:0 0 3px #000;background:rgba(14,14,16,.82);border-radius:8px;padding:0 6px;margin-bottom:2px;width:fit-content}
 .leg .n{max-width:55vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .leg.off .n{opacity:.45;text-decoration:line-through}
 .ib{background:none;border:0;color:#d0d0d6;padding:4px 7px;cursor:pointer;display:inline-flex;align-items:center}
@@ -166,7 +166,15 @@ const S={
   inds:[],objs:[],drawings:[],tool:'cross',pend:null,
   gotData:false,tok:0,sizeEma:0
 };
-function save(){try{localStorage.setItem('xt1',JSON.stringify({sym:S.sym.id,tf:S.tf,ct:S.ct,sh:S.sh,inds:S.inds.map(i=>({id:i.id,name:i.name,code:i.builtin?null:i.code,params:i.params,on:i.on,builtin:i.builtin})),dr:S.drawings}))}catch(e){}}
+function save(){try{localStorage.setItem('xt1',JSON.stringify({sym:S.sym.id,tf:S.tf,ct:S.ct,sh:S.sh,inds:S.inds.map(i=>({id:i.id,code:(i.builtin&&!i.edited)?null:i.code,edited:i.edited||false,name:i.name,params:i.params,on:i.on,builtin:i.builtin})),dr:S.drawings,cfg:S.cfg,hid:S.hid}))}catch(e){}}
+const CFG0={vol:{ma:20},prof:{w:90,va:70},hvn:{n:3,th:1.4},heat:{op:1},bigt:{k:7,max:22},delta:{}};
+S.cfg=JSON.parse(JSON.stringify(CFG0));S.hid={};
+const CFGF={vol:[['ma','متوسط الحجم (MA)',1,100,1]],prof:[['w','عرض البروفايل (بكسل)',40,220,5],['va','Value Area %',50,95,1]],hvn:[['n','عدد المستويات',1,8,1],['th','الحد الأدنى (× المتوسط)',1,4,0.1]],heat:[['op','شدة الألوان',0.3,2.5,0.1]],bigt:[['k','حجم الصفقة الكبيرة (× المتوسط)',2,30,1],['max','أقصى حجم للكرة',8,50,1]],delta:[]};
+function openCfg(k){openSheet(SHN[k]+' — إعدادات',b=>{
+  const F=CFGF[k]||[];if(!F.length){const d=document.createElement('div');d.className='small';d.style.padding='14px';d.textContent='لا توجد إعدادات لهذا العنصر';b.appendChild(d)}
+  for(const f of F){const d=li(b,'<span class="g">'+f[1]+'</span><input type="number" style="width:110px" min="'+f[2]+'" max="'+f[3]+'" step="'+f[4]+'" value="'+S.cfg[k][f[0]]+'">',()=>{},false);
+    d.querySelector('input').onchange=e=>{let v=+e.target.value;if(!isFinite(v))return;v=Math.max(f[2],Math.min(f[3],v));S.cfg[k][f[0]]=v;e.target.value=v;save();dirty=true}}
+  const rb=document.createElement('button');rb.className='btn';rb.style.cssText='width:100%;margin-top:12px;padding:12px';rb.textContent='استرجاع الافتراضي';rb.onclick=()=>{S.cfg[k]=JSON.parse(JSON.stringify(CFG0[k]));save();dirty=true;openCfg(k)};b.appendChild(rb)})}
 function libGet(){try{return JSON.parse(localStorage.getItem('xt_lib')||'[]')}catch(e){return[]}}
 function libSet(a){try{localStorage.setItem('xt_lib',JSON.stringify(a))}catch(e){}}
 function libSave(i){if(i.builtin)return;const a=libGet().filter(x=>x.id!==i.id);a.push({id:i.id,name:i.name,code:i.code,params:i.params});libSet(a)}
@@ -252,7 +260,7 @@ function addTrade(t,p,sz,buy){
   const k=Math.round(p/S.sym.step);const L=b.lv[k]||(b.lv[k]=[0,0]);
   if(buy)L[1]+=sz;else L[0]+=sz;
   S.sizeEma=S.sizeEma?S.sizeEma*0.98+sz*0.02:sz;
-  if(sz>S.sizeEma*7){S.big.push({t,p,sz,buy});if(S.big.length>500)S.big.shift()}}
+  if(sz>S.sizeEma*S.cfg.bigt.k){S.big.push({t,p,sz,buy});if(S.big.length>500)S.big.shift()}}
   dirty=true;
 }
 function pushBook(bids,asks){
@@ -343,7 +351,7 @@ function connect(){
   ws.onopen=()=>{
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'trades',coin:S.sym.coin}}));
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'l2Book',coin:S.sym.coin}}));
-    setStatus('live','مباشر · Hyperliquid v12');lastMsg=Date.now();
+    setStatus('live','مباشر · Hyperliquid v13');lastMsg=Date.now();
     clearInterval(pingT);pingT=setInterval(()=>{try{ws.send(JSON.stringify({method:'ping'}))}catch(e){}},25000);
     gotTimer=setTimeout(()=>{if(tok===S.tok&&!S.gotData)startDemo(true)},9000);
   };
@@ -520,7 +528,7 @@ function drawHeat(){
       else if(b.v>0){const r0=Math.floor(b.l/rowH),r1=Math.floor(b.h/rowH),n=r1-r0+1;for(let r=r0;r<=r1;r++)m.set(r,b.v/n)}
       for(const[r,v]of m){cells.push([i,r,v]);if(v>hm)hm=v}}
     if(hm)for(const[i,r,v]of cells){const x=Math.min(1,Math.sqrt(v/hm));const y1=yOf((r+1)*rowH),y0=yOf(r*rowH);
-      cx.fillStyle=heatCol(x,0.03+0.3*x*x);cx.fillRect(xOf(i)-S.barW/2,y1,Math.max(1,S.barW),Math.max(2,y0-y1))}}
+      cx.fillStyle=heatCol(x,Math.min(.95,(0.03+0.3*x*x)*S.cfg.heat.op));cx.fillRect(xOf(i)-S.barW/2,y1,Math.max(1,S.barW),Math.max(2,y0-y1))}}
   if(!sn.length)return;
   let mx=0;const vis=[];
   for(let k=0;k<sn.length;k++){const s=sn[k];const nx=sn[k+1]?sn[k+1].t:Date.now();if(nx<tA||s.t>tB)continue;vis.push([s,nx]);
@@ -534,14 +542,14 @@ function drawHeat(){
         const nb=side[q+1]||side[q-1];const sp=nb?Math.abs(nb[0]-l[0]):S.sym.step;
         const h=Math.max(2,Math.abs(yOf(l[0])-yOf(l[0]+sp)));
         const x=Math.min(1,Math.sqrt(l[1]/mx));
-        cx.fillStyle=heatCol(x,0.03+0.55*x*x);
+        cx.fillStyle=heatCol(x,Math.min(.95,(0.03+0.55*x*x)*S.cfg.heat.op));
         cx.fillRect(x0,yOf(l[0])-h/2,w,h);
       }
     }
   }
   if(S.sh.bigt){
     for(const b of S.big){const x=xOf((b.t-t0)/ms),y=yOf(b.p);if(x<0||x>plotW||y<0||y>mainH)continue;
-      const r=Math.min(22,5+Math.sqrt(b.sz/(S.sizeEma||1))*2.2);
+      const r=Math.min(S.cfg.bigt.max,5+Math.sqrt(b.sz/(S.sizeEma||1))*2.2);
       cx.beginPath();cx.arc(x,y,r,0,7);cx.fillStyle=b.buy?'rgba(38,166,154,.55)':'rgba(239,83,80,.55)';cx.fill();
       cx.strokeStyle=b.buy?'#7fe0d4':'#ff9a96';cx.lineWidth=1;cx.stroke()}
   }
@@ -561,13 +569,13 @@ function buildProfile(){
   arr.sort((a,b)=>a.k-b.k);
   // value area 70%
   let va=[0,0];if(arr.length){const pi=arr.findIndex(a=>a.k===poc);let lo=pi,hi=pi,acc=arr[pi].t;
-    while(acc<tot*0.7&&(lo>0||hi<arr.length-1)){const dn=lo>0?arr[lo-1].t:-1,up=hi<arr.length-1?arr[hi+1].t:-1;if(up>=dn){hi++;acc+=arr[hi].t}else{lo--;acc+=arr[lo].t}}
+    while(acc<tot*(S.cfg.prof.va/100)&&(lo>0||hi<arr.length-1)){const dn=lo>0?arr[lo-1].t:-1,up=hi<arr.length-1?arr[hi+1].t:-1;if(up>=dn){hi++;acc+=arr[hi].t}else{lo--;acc+=arr[lo].t}}
     va=[arr[lo].p,arr[hi].p+binSz]}
   prof={arr,binSz,mx,tot,poc:poc!==null?poc*binSz:null,va};
 }
 function drawProfile(){
   buildProfile();const P=prof;if(!P.arr.length)return;
-  const pw=Math.min(90,plotW*0.16);
+  const pw=Math.min(S.cfg.prof.w,plotW*0.22);
   if(S.sh.prof){
     // value area band
     cx.fillStyle='rgba(41,98,255,.06)';cx.fillRect(0,yOf(P.va[1]),plotW,yOf(P.va[0])-yOf(P.va[1]));
@@ -582,7 +590,7 @@ function drawProfile(){
   if(S.sh.hvn){
     const avg=P.tot/P.arr.length,pick=[],used=new Set();
     const sorted=[...P.arr].sort((a,b)=>b.t-a.t);
-    for(const a of sorted){if(pick.length>=3||a.t<avg*1.4)break;if([-3,-2,-1,0,1,2,3].some(d=>used.has(a.k+d)))continue;used.add(a.k);pick.push(a)}
+    for(const a of sorted){if(pick.length>=S.cfg.hvn.n||a.t<avg*S.cfg.hvn.th)break;if([-3,-2,-1,0,1,2,3].some(d=>used.has(a.k+d)))continue;used.add(a.k);pick.push(a)}
     for(const a of pick){
       const y1=yOf(a.p+P.binSz),y0=yOf(a.p);
       cx.fillStyle='rgba(255,152,0,.13)';cx.fillRect(0,y1,plotW-pw-4,y0-y1);
@@ -699,8 +707,8 @@ function drawSubs(){
         else{const hb=b.bv/mx*(h-8),hs=b.sv/mx*(h-8);cx.fillStyle='rgba(38,166,154,.8)';cx.fillRect(x-bw/2,y+h-hb,bw,hb);cx.fillStyle='rgba(239,83,80,.8)';cx.fillRect(x-bw/2,y+h-hb-hs,bw,hs)}}
       if(S.sh.delta){let c=0,cm=0,cmn=0;const cv2=[];for(let i=i0;i<=i1;i++){c+=B[i].bv-B[i].sv;cv2.push(c);if(c>cm)cm=c;if(c<cmn)cmn=c}
         cx.beginPath();cx.strokeStyle='#ffd54f';cx.lineWidth=1.5;cv2.forEach((v,j)=>{const yy=y+6+(cm-v)/((cm-cmn)||1)*(h-12),xx=xOf(i0+j);j?cx.lineTo(xx,yy):cx.moveTo(xx,yy)});cx.stroke()}
-      else{cx.beginPath();cx.strokeStyle='#ffd54f';cx.lineWidth=1.3;let st=false;for(let i=Math.max(i0,19);i<=i1;i++){let a=0;for(let j=0;j<20;j++)a+=B[i-j].v;a/=20;const yy=y+h-a/mx*(h-8),xx=xOf(i);if(!st){cx.moveTo(xx,yy);st=true}else cx.lineTo(xx,yy)}cx.stroke()}
-      cx.fillStyle='#8a8f9c';cx.font='12px sans-serif';cx.textAlign='left';cx.textBaseline='top';cx.fillText(S.sh.delta?'Delta + CVD':'Volume + MA20',6,y+4);
+      else{cx.beginPath();cx.strokeStyle='#ffd54f';cx.lineWidth=1.3;let st=false;const M=S.cfg.vol.ma;for(let i=Math.max(i0,M-1);i<=i1;i++){let a=0;for(let j=0;j<M;j++)a+=B[i-j].v;a/=M;const yy=y+h-a/mx*(h-8),xx=xOf(i);if(!st){cx.moveTo(xx,yy);st=true}else cx.lineTo(xx,yy)}cx.stroke()}
+      cx.fillStyle='#8a8f9c';cx.font='12px sans-serif';cx.textAlign='left';cx.textBaseline='top';cx.fillText(S.sh.delta?'Delta + CVD':'Volume + MA'+S.cfg.vol.ma,6,y+4);
     });
   }
   if(sub2H){
@@ -862,10 +870,10 @@ function sheetDraw(){openSheet('أدوات الرسم',b=>{
 function sheetInd(){openSheet('المؤشرات',b=>{
   sec(b,'العرض');
   for(const k of Object.keys(SHN)){const d=li(b,'<span class="g">'+SHN[k]+'</span><input type="checkbox" '+(S.sh[k]?'checked':'')+'>',()=>{},false);
-    const c=d.querySelector('input');d.onclick=e=>{if(e.target!==c)c.checked=!c.checked;S.sh[k]=c.checked;if(k==='vol'&&c.checked)S.sh.delta=false;if(k==='delta'&&c.checked)S.sh.vol=false;save();dirty=true;sheetInd()}}
+    const c=d.querySelector('input');d.onclick=e=>{if(e.target!==c)c.checked=!c.checked;S.sh[k]=c.checked;if(c.checked)S.hid[k]=false;if(k==='vol'&&c.checked)S.sh.delta=false;if(k==='delta'&&c.checked)S.sh.vol=false;save();dirty=true;sheetInd()}}
   sec(b,'مؤشرات الكود');
   for(const i of S.inds){const d=li(b,'<span class="g">'+i.name+(i.builtin?' <span class="small">(مدمج)</span>':'')+'</span><button class="btn" data-a="e" style="padding:8px 12px">تعديل</button>'+(i.builtin?'':'<button class="btn" data-a="d" style="padding:8px 12px;color:#ef5350">حذف</button>')+'<input type="checkbox" '+(i.on?'checked':'')+'>',()=>{},false);
-    const c=d.querySelector('input');d.onclick=e=>{const a=e.target.dataset&&e.target.dataset.a;if(a==='e'){closeSheet();openEditor(i);return}if(a==='d'){libSave(i);removeFromChart(i);toast('انحذف من الشارت (محفوظ في المكتبة)');sheetInd();return}if(e.target!==c)c.checked=!c.checked;i.on=c.checked;save();dirty=true}}
+    const c=d.querySelector('input');d.onclick=e=>{const a=e.target.dataset&&e.target.dataset.a;if(a==='e'){closeSheet();openEditor(i);return}if(a==='d'){libSave(i);removeFromChart(i);toast('انحذف من الشارت (محفوظ في المكتبة)');sheetInd();return}if(e.target!==c)c.checked=!c.checked;i.on=c.checked;if(c.checked)S.hid[i.id]=false;save();dirty=true;legKey=''}}
   const lib=libGet().filter(x=>!S.inds.some(i=>i.id===x.id));
   if(lib.length){sec(b,'المكتبة المحفوظة (غير مضافة للشارت)');
     for(const x of lib){const d=li(b,'<span class="g">'+x.name+'</span><button class="btn on" data-a="a" style="padding:8px 12px">إضافة</button><button class="btn" data-a="x" style="padding:8px 12px;color:#ef5350">حذف نهائي</button>',()=>{},false);
@@ -961,8 +969,8 @@ function sheetMenu(){openSheet('محور التحليل',b=>{
 let legOpen=false,legKey='';
 function legRows(){
   const rows=[];
-  for(const k of Object.keys(SHN))rows.push({n:SHN[k],on:S.sh[k],tg:v=>{S.sh[k]=v;if(k==='vol'&&v)S.sh.delta=false;if(k==='delta'&&v)S.sh.vol=false}});
-  for(const i of S.inds)rows.push({n:i.name,on:i.on,tg:v=>{i.on=v},ed:()=>openEditor(i),err:runErr[i.id],del:i.builtin?null:()=>{libSave(i);removeFromChart(i);toast('انحذف من الشارت (محفوظ في المكتبة)')}});
+  for(const k of Object.keys(SHN)){if(S.hid[k])continue;rows.push({n:SHN[k],on:S.sh[k],tg:v=>{S.sh[k]=v;if(k==='vol'&&v)S.sh.delta=false;if(k==='delta'&&v)S.sh.vol=false},ed:()=>openCfg(k),del:()=>{S.sh[k]=false;S.hid[k]=true;save();dirty=true;legKey='';toast('انحذف من الشارت (يرجع من قائمة المؤشرات)')}})}
+  for(const i of S.inds){if(S.hid[i.id])continue;rows.push({n:i.name,on:i.on,tg:v=>{i.on=v},ed:()=>openEditor(i),err:runErr[i.id],del:()=>{if(i.builtin){i.on=false;S.hid[i.id]=true;save();toast('انحذف من الشارت (يرجع من قائمة المؤشرات)')}else{libSave(i);removeFromChart(i);toast('انحذف من الشارت (محفوظ في المكتبة)')}dirty=true;legKey=''}})}
   return rows;
 }
 function buildLegs(){
@@ -981,7 +989,7 @@ function buildLegs(){
 $('legTgl').onclick=()=>{legOpen=!legOpen;$('legTgl').textContent=legOpen?'⌃':'⌄';legKey='';dirty=true};
 function updateLegend(){
   const B=S.bars;
-  const key=JSON.stringify([legOpen,S.sh,S.inds.map(i=>i.on+(runErr[i.id]||''))]);
+  const key=JSON.stringify([legOpen,S.sh,S.hid,S.inds.map(i=>i.on+(runErr[i.id]||''))]);
   if(key!==legKey){legKey=key;buildLegs()}
   if(!B.length){$('hprice').textContent='';$('ohlc').textContent='';return}
   const last=S.last[S.sym.id]??B[B.length-1].c,o=S.dayOpen[S.sym.id];
@@ -1055,9 +1063,9 @@ function saveEditor(){
   let params={};try{params=JSON.parse($('cParams').value||'{}')}catch(e){$('err').textContent='JSON الإعدادات غير صحيح';return}
   const code=$('cText').value,name=$('cName').value||'مؤشر';
   try{new Function('ctx','bars','ta','params',code)}catch(e){$('err').textContent='خطأ في الصياغة: '+e.message;return}
-  if(editing){editing.name=name;editing.code=code;editing.params=params;editing.on=true}
+  if(editing){editing.name=name;editing.code=code;editing.params=params;editing.on=true;if(editing.builtin)editing.edited=true}
   else{const i={id:'c'+Date.now(),name,code,params,on:true,builtin:false};S.inds.push(i);editing=i}
-  libSave(editing);save();dirty=true;$('mCode').classList.remove('show');toast('تم الحفظ في المكتبة والتشغيل');
+  libSave(editing);S.hid[editing.id]=false;save();dirty=true;$('mCode').classList.remove('show');toast('تم الحفظ في المكتبة والتشغيل');
 }
 function delEditor(){if(editing&&!editing.builtin){libSet(libGet().filter(x=>x.id!==editing.id));removeFromChart(editing);$('mCode').classList.remove('show');toast('تم الحذف نهائياً')}}
 $('cSave').onclick=saveEditor;$('cDel').onclick=delEditor;$('cClose').onclick=()=>$('mCode').classList.remove('show');
@@ -1078,10 +1086,10 @@ function init(){
   S.inds=BUILTIN.map(b=>({...b,params:{...b.params}}));
   try{S.alerts=JSON.parse(localStorage.getItem('xt_alerts')||'[]')}catch(e){}
   if(st){
-    S.sym=SYMS.find(s=>s.id===st.sym)||S.sym;S.tf=st.tf||60;S.ct=st.ct||'candle';Object.assign(S.sh,st.sh||{});S.drawings=st.dr||[];
+    S.sym=SYMS.find(s=>s.id===st.sym)||S.sym;S.tf=st.tf||60;S.ct=st.ct||'candle';Object.assign(S.sh,st.sh||{});S.drawings=st.dr||[];if(st.cfg)for(const k in st.cfg)S.cfg[k]=Object.assign({},CFG0[k]||{},st.cfg[k]);S.hid=st.hid||{};
     for(const i of st.inds||[]){
       const b=S.inds.find(x=>x.id===i.id);
-      if(b){b.on=i.on;b.params=i.params||b.params}
+      if(b){b.on=i.on;b.params=i.params||b.params;if(i.edited&&i.code){b.code=i.code;b.edited=true;if(i.name)b.name=i.name}}
       else if(!i.builtin&&i.code)S.inds.push({id:i.id,name:i.name,code:i.code,params:i.params||{},on:i.on,builtin:false});
     }
   }
