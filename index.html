@@ -28,6 +28,9 @@ canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
 #stxt{color:var(--mu);font-size:13px}
 #hprice{font:700 22px inherit;margin:1px 0}
 #ohlc{font-size:13px;color:var(--mu);margin-bottom:4px;text-shadow:0 0 3px #000}
+.si{position:relative;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;overflow:hidden;color:#fff;font-weight:800;flex:none;vertical-align:middle;letter-spacing:-.5px}
+.si img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.si.ok{color:transparent}
 .leg{display:flex;align-items:center;gap:8px;color:#c8c8d0;font-size:15px;height:36px;text-shadow:0 0 3px #000;background:rgba(14,14,16,.82);border-radius:8px;padding:0 6px;margin-bottom:2px;width:fit-content}
 .leg .n{max-width:55vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .leg.off .n{opacity:.45;text-decoration:line-through}
@@ -156,6 +159,16 @@ const SYMS=[
 const TFS=[[10,'10s'],[30,'30s'],[60,'1m'],[300,'5m'],[900,'15m'],[3600,'1h']];
 const HLINT={60:'1m',300:'5m',900:'15m',3600:'1h'};
 const $=id=>document.getElementById(id);
+const COMM={GOLD:['#f5c542','#b8860b','Au'],SILVER:['#d9dde3','#8a919c','Ag'],COPPER:['#d98a5b','#8c4a24','Cu'],PLATINUM:['#e5e4e2','#8e9aa6','Pt'],PALLADIUM:['#cfd8dc','#78909c','Pd'],OIL:['#37474f','#101820','OIL'],CL:['#37474f','#101820','OIL'],BRENTOIL:['#37474f','#101820','OIL'],NATGAS:['#4fc3f7','#0277bd','GAS'],URANIUM:['#9ccc65','#33691e','U']};
+const svgIco=(c,t)=>'data:image/svg+xml;utf8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="'+c[0]+'"/><stop offset="1" stop-color="'+c[1]+'"/></linearGradient></defs><circle cx="32" cy="32" r="31" fill="url(#g)"/><circle cx="32" cy="32" r="25" fill="none" stroke="rgba(255,255,255,.45)" stroke-width="2"/><text x="32" y="40" text-anchor="middle" font-family="Arial" font-weight="800" font-size="'+(t.length>2?18:24)+'" fill="#fff" stroke="rgba(0,0,0,.25)" stroke-width=".6">'+t+'</text></svg>');
+function symIco(y,px){
+  px=px||32;const id=y.id,coin=y.coin||id;let src='',bg='#2a2e39',stock=false;
+  const h=[...id].reduce((a,c)=>(a*31+c.charCodeAt(0))>>>0,7);bg='hsl('+(h%360)+',55%,38%)';
+  if(COMM[id]){src=svgIco(COMM[id],COMM[id][2])}
+  else if(/^xyz:/.test(coin)){stock=true;src='https://financialmodelingprep.com/image-stock/'+id.replace(/[^A-Z0-9.]/gi,'')+'.png'}
+  else src='https://app.hyperliquid.xyz/coins/'+encodeURIComponent(coin)+'.svg';
+  const t=id.length>4?id.slice(0,3):id;
+  return '<span class="si" style="width:'+px+'px;height:'+px+'px;font-size:'+Math.round(px*(t.length>3?.28:.34))+'px;background:'+bg+'"><span>'+t+'</span><img loading="lazy" referrerpolicy="no-referrer" src="'+src+'" onload="this.parentNode.classList.add(\'ok\');'+(stock?"this.parentNode.style.background=\'#fff\'":'')+'" onerror="this.remove()"></span>'}
 const cv=$('cv'),cx=cv.getContext('2d');
 
 /* ================= الحالة ================= */
@@ -365,7 +378,7 @@ function connect(){
   ws.onopen=()=>{
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'trades',coin:S.sym.coin}}));
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'l2Book',coin:S.sym.coin}}));
-    setStatus('live','مباشر · Hyperliquid v14');lastMsg=Date.now();
+    setStatus('live','مباشر · Hyperliquid v15');lastMsg=Date.now();
     clearInterval(pingT);pingT=setInterval(()=>{try{ws.send(JSON.stringify({method:'ping'}))}catch(e){}},25000);
     gotTimer=setTimeout(()=>{if(tok===S.tok&&!S.gotData)startDemo(true)},9000);
   };
@@ -856,7 +869,7 @@ function sec(b,t){const d=document.createElement('div');d.className='sec';d.text
 function syncChips(){
   $('tfChip').textContent=TFN[S.tf]||S.tf+'s';
   $('symChip2').textContent=S.sym.id;
-  $('symChip').innerHTML=S.sym.name+' <span style="font-size:12px;color:#8b8b93">▾</span>';
+  $('symChip').innerHTML=symIco(S.sym,28)+'<span>'+S.sym.name+'</span>'+' <span style="font-size:12px;color:#8b8b93">▾</span>';
 }
 function setTool(k){
   S.tool=k;S.pend=null;const p=$('toolPill');
@@ -870,7 +883,7 @@ function sheetSym(){openSheet('الرمز',b=>{
   const inp=document.createElement('input');inp.type='text';inp.placeholder='بحث...';b.appendChild(inp);
   const box=document.createElement('div');b.appendChild(box);
   const fill=()=>{box.innerHTML='';const q=inp.value.toLowerCase();for(const y of SYMS){if(q&&!(y.id+y.name).toLowerCase().includes(q))continue;
-    li(box,'<span class="g"><b>'+y.id+'</b> <span class="small">'+y.name+'</span></span>',()=>{S.sym=y;save();syncChips();closeSheet();reset()},y.id===S.sym.id)}};
+    li(box,symIco(y,34)+'<span class="g" style="margin:0 10px"><b>'+y.id+'</b> <span class="small">'+y.name+'</span></span>',()=>{S.sym=y;save();syncChips();closeSheet();reset()},y.id===S.sym.id)}};
   inp.oninput=fill;fill();
 })}
 function sheetType(){openSheet('نوع الرسم البياني',b=>{
@@ -1020,7 +1033,7 @@ function buildWatch(){
   for(const y of SYMS){
     const l=S.last[y.id],o=S.dayOpen[y.id];const ch=l&&o?l-o:0,pc=l&&o?ch/o*100:0;
     const d=document.createElement('div');d.className='wr';
-    d.innerHTML='<div class="a"><b>'+y.id+'</b><div>'+y.name+'</div></div><div class="p"><b>'+(l?l.toFixed(y.dec):'…')+'</b><span class="'+(ch>=0?'up':'dn')+'">'+(l&&o?(ch>=0?'+':'')+pc.toFixed(2)+'%':'')+'</span></div>';
+    d.innerHTML=symIco(y,40)+'<div class="a" style="flex:1;margin:0 10px"><b>'+y.id+'</b><div>'+y.name+'</div></div><div class="p"><b>'+(l?l.toFixed(y.dec):'…')+'</b><span class="'+(ch>=0?'up':'dn')+'">'+(l&&o?(ch>=0?'+':'')+pc.toFixed(2)+'%':'')+'</span></div>';
     d.onclick=()=>{S.sym=y;save();syncChips();showView('chart');reset()};
     el.appendChild(d);
   }
