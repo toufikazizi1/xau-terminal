@@ -251,11 +251,9 @@ function pushBook(bids,asks){
 }
 async function altKlines(iv){
   const x=xsrc(),m=new Map();
-  try{const r=await fetch('https://fapi.binance.com/fapi/v1/klines?symbol='+x.bn.toUpperCase()+'&interval='+iv+'&limit=500');const K=await r.json();
-    if(Array.isArray(K)&&K.length){for(const k of K)m.set(+k[0],[+k[1],+k[2],+k[3],+k[4],+k[5],+k[9]]);S.altSrc='Binance';return m}}catch(e){}
-  try{const bi={'1m':'1','5m':'5','15m':'15','1h':'60','4h':'240','1d':'D'}[iv];
-    const r=await fetch('https://api.bybit.com/v5/market/kline?category=linear&symbol='+x.by+'&interval='+bi+'&limit=1000');const j=await r.json();
-    const L=j&&j.result&&j.result.list;if(Array.isArray(L)&&L.length){for(const k of L)m.set(+k[0],[+k[1],+k[2],+k[3],+k[4],+k[5],null]);S.altSrc='Bybit';return m}}catch(e){}
+  try{const bar={'1m':'1m','5m':'5m','15m':'15m','1h':'1H','4h':'4H','1d':'1D'}[iv];
+    const r=await fetch('https://www.okx.com/api/v5/market/candles?instId='+x.ok+'&bar='+bar+'&limit=300');const j=await r.json();
+    if(j&&Array.isArray(j.data)&&j.data.length){for(const k of j.data)m.set(+k[0],[+k[1],+k[2],+k[3],+k[4],+k[5],null]);S.altSrc='OKX'}}catch(e){S.bnErr=String(e)}
   return m;
 }
 async function loadHistory(){
@@ -283,21 +281,17 @@ async function loadHistory(){
   }catch(e){}
 }
 let midHL=0,lastBook=0,offOK=false,lastHL=0,hlPx=0,bkPx=0,offs=0,xw=[];
-const XS={GOLD:{bn:'xauusdt',by:'XAUTUSDT'},BTC:{bn:'btcusdt',by:'BTCUSDT'},ETH:{bn:'ethusdt',by:'ETHUSDT'},SOL:{bn:'solusdt',by:'SOLUSDT'}};
-function xsrc(){return XS[S.sym.id]||{bn:S.sym.id.toLowerCase()+'usdt',by:S.sym.id+'USDT'}}
+const XS={GOLD:{ok:'XAUT-USDT-SWAP'}};
+function xsrc(){return XS[S.sym.id]||{ok:S.sym.id+'-USDT-SWAP'}}
 function backup(px,sz,buy,src){bkPx=px;const ref=midHL||hlPx;if(ref&&Date.now()-lastBook<4000){const d=ref-px;offs=offOK?offs*0.97+d*0.03:d;offOK=true}const hlFresh=Date.now()-lastHL<3000;if(hlFresh)return;if(S.bars.length){const lc=S.bars[S.bars.length-1].c;if(Math.abs(px+offs-lc)/lc>0.004)return}if(S.demo||!S.bars.length)return;if(!offOK&&!S._oi){offs=S.bars[S.bars.length-1].c-px;S._oi=true}addTrade(Date.now(),px+offs,sz,buy);S.src=src;setStatus('live','مباشر · '+src+' (احتياطي)')}
 function closeX(){for(const w of xw){try{w.onclose=null;w.close()}catch(e){}}xw=[]}
-function openX(tok){
-  closeX();const x=xsrc();
-  const mk=(url,onopen,onmsg,name)=>{let w;try{w=new WebSocket(url)}catch(e){return}xw.push(w);
-    w.onopen=()=>onopen&&onopen(w);w.onmessage=e=>{try{onmsg(JSON.parse(e.data))}catch(_){}};
-    w.onclose=()=>{if(tok===S.tok&&!S.demo)setTimeout(()=>{if(tok===S.tok)openXone(tok,name)},4000)};w.onerror=()=>{}};
-  S._mk=mk;S._x=x;openXone(tok,'bn');openXone(tok,'by');
-}
-function openXone(tok,name){
-  const mk=S._mk,x=S._x;if(!mk||tok!==S.tok)return;
-  if(name==='bn')mk('wss://fstream.binance.com/ws/'+x.bn+'@aggTrade',null,m=>{if(m.e==='aggTrade')backup(+m.p,+m.q,!m.m,'Binance')},'bn');
-  else mk('wss://stream.bybit.com/v5/public/linear',w=>w.send(JSON.stringify({op:'subscribe',args:['publicTrade.'+x.by]})),m=>{if(m.topic&&m.data)for(const t of m.data)backup(+t.p,+t.v,t.S==='Buy','Bybit')},'by');
+function openX(tok){closeX();openXone(tok)}
+function openXone(tok){
+  if(tok!==S.tok||S.demo)return;const x=xsrc();let w;
+  try{w=new WebSocket('wss://ws.okx.com:8443/ws/v5/public')}catch(e){return}xw.push(w);
+  w.onopen=()=>{w.send(JSON.stringify({op:'subscribe',args:[{channel:'trades',instId:x.ok}]}));w._p=setInterval(()=>{try{w.send('ping')}catch(e){}},20000)};
+  w.onmessage=e=>{if(e.data==='pong')return;try{const m=JSON.parse(e.data);if(m.data&&m.arg&&m.arg.channel==='trades')for(const t of m.data)backup(+t.px,+t.sz,t.side==='buy','OKX')}catch(_){}};
+  w.onclose=()=>{clearInterval(w._p);if(tok===S.tok&&!S.demo)setTimeout(()=>openXone(tok),4000)};w.onerror=()=>{};
 }
 let ws=null,gotTimer=null,pingT=null,lastMsg=Date.now();
 setInterval(()=>{if(!S.demo&&ws&&Date.now()-lastMsg>20000){lastMsg=Date.now();connect()}},5000);
@@ -313,7 +307,7 @@ function connect(){
   ws.onopen=()=>{
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'trades',coin:S.sym.coin}}));
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'l2Book',coin:S.sym.coin}}));
-    setStatus('live','مباشر · Hyperliquid v6');lastMsg=Date.now();
+    setStatus('live','مباشر · Hyperliquid v7');lastMsg=Date.now();
     clearInterval(pingT);pingT=setInterval(()=>{try{ws.send(JSON.stringify({method:'ping'}))}catch(e){}},25000);
     gotTimer=setTimeout(()=>{if(tok===S.tok&&!S.gotData)startDemo(true)},9000);
   };
