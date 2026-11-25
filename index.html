@@ -175,6 +175,20 @@ function openCfg(k){openSheet(SHN[k]+' — إعدادات',b=>{
   for(const f of F){const d=li(b,'<span class="g">'+f[1]+'</span><input type="number" style="width:110px" min="'+f[2]+'" max="'+f[3]+'" step="'+f[4]+'" value="'+S.cfg[k][f[0]]+'">',()=>{},false);
     d.querySelector('input').onchange=e=>{let v=+e.target.value;if(!isFinite(v))return;v=Math.max(f[2],Math.min(f[3],v));S.cfg[k][f[0]]=v;e.target.value=v;save();dirty=true}}
   const rb=document.createElement('button');rb.className='btn';rb.style.cssText='width:100%;margin-top:12px;padding:12px';rb.textContent='استرجاع الافتراضي';rb.onclick=()=>{S.cfg[k]=JSON.parse(JSON.stringify(CFG0[k]));save();dirty=true;openCfg(k)};b.appendChild(rb)})}
+function detectParams(i){const out={};const re=/params\.(\w+)\s*(?:\|\||\?\?)\s*(-?\d+\.?\d*|'[^']*'|"[^"]*"|true|false)/g;let m;
+  while((m=re.exec(i.code||''))){let v=m[2];if(v==='true')v=true;else if(v==='false')v=false;else if(/^['"]/.test(v))v=v.slice(1,-1);else v=+v;if(!(m[1] in out))out[m[1]]=v}
+  for(const k in (i.params||{}))out[k]=i.params[k];return out}
+function openIndSettings(i){openSheet(i.name+' — إعدادات',b=>{
+  const P=detectParams(i),ks=Object.keys(P);
+  if(!ks.length){const d=document.createElement('div');d.className='small';d.style.padding='14px';d.textContent='هذا المؤشر ما فيه إعدادات. تقدر تعدّل الكود.';b.appendChild(d)}
+  for(const k of ks){const v=P[k],isB=typeof v==='boolean',isN=typeof v==='number';
+    const d=li(b,'<span class="g" style="direction:ltr">'+k+'</span>'+(isB?'<input type="checkbox" '+(v?'checked':'')+'>':'<input type="'+(isN?'number':'text')+'" step="any" style="width:130px;direction:ltr" value="'+v+'">'),()=>{},false);
+    const inp=d.querySelector('input');inp.onchange=()=>{i.params=i.params||{};i.params[k]=isB?inp.checked:isN?(+inp.value):inp.value;if(isN&&!isFinite(i.params[k]))i.params[k]=v;save();dirty=true;legKey=''};
+    if(isB)d.onclick=e=>{if(e.target!==inp)inp.checked=!inp.checked;inp.onchange()}}
+  const row=document.createElement('div');row.style.cssText='display:flex;gap:8px;margin-top:12px';
+  const e=document.createElement('button');e.className='btn on';e.style.cssText='flex:1;padding:12px';e.textContent='تعديل الكود';e.onclick=()=>{closeSheet();openEditor(i)};
+  const r=document.createElement('button');r.className='btn';r.style.cssText='flex:1;padding:12px';r.textContent='استرجاع الافتراضي';r.onclick=()=>{i.params={};save();dirty=true;openIndSettings(i)};
+  row.appendChild(e);if(ks.length)row.appendChild(r);b.appendChild(row)})}
 function libGet(){try{return JSON.parse(localStorage.getItem('xt_lib')||'[]')}catch(e){return[]}}
 function libSet(a){try{localStorage.setItem('xt_lib',JSON.stringify(a))}catch(e){}}
 function libSave(i){if(i.builtin)return;const a=libGet().filter(x=>x.id!==i.id);a.push({id:i.id,name:i.name,code:i.code,params:i.params});libSet(a)}
@@ -351,7 +365,7 @@ function connect(){
   ws.onopen=()=>{
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'trades',coin:S.sym.coin}}));
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'l2Book',coin:S.sym.coin}}));
-    setStatus('live','مباشر · Hyperliquid v13');lastMsg=Date.now();
+    setStatus('live','مباشر · Hyperliquid v14');lastMsg=Date.now();
     clearInterval(pingT);pingT=setInterval(()=>{try{ws.send(JSON.stringify({method:'ping'}))}catch(e){}},25000);
     gotTimer=setTimeout(()=>{if(tok===S.tok&&!S.gotData)startDemo(true)},9000);
   };
@@ -414,7 +428,7 @@ function startDemo(auto){
 function stopDemo(){clearInterval(demoT);clearInterval(demoB);demoT=demoB=null}
 
 function reset(){
-  S.tok++;stopDemo();S.bars=[];S.snaps=[];if(!S.demoPref)restore();S.big=[];S.gotData=false;S.sizeEma=0;S.yZoom=1;
+  S.tok++;stopDemo();S.bars=[];S.snaps=[];if(!S.demoPref)restore();S.big=[];S.gotData=false;S.sizeEma=0;S.yZoom=1;S.yOff=0;
   S.demo=!!S.demoPref;
   if(S.demo){startDemo(false)}else{connect();loadHistory()}
   goLast();dirty=true;
@@ -471,7 +485,7 @@ function layout(){
   for(let i=i0;i<=i1;i++){const b=B[i];if(!b)continue;if(b.l<lo)lo=b.l;if(b.h>hi)hi=b.h}
   if(!isFinite(lo)){lo=0;hi=1}
   if(hi-lo<S.sym.step*4){const m=(hi+lo)/2;lo=m-S.sym.step*2;hi=m+S.sym.step*2}
-  const c=(hi+lo)/2,hr=(hi-lo)/2*1.06*S.yZoom;yMin=c-hr;yMax=c+hr;
+  const c=(hi+lo)/2+(S.yOff||0),hr=(hi-lo)/2*1.06*S.yZoom;yMin=c-hr;yMax=c+hr;
 }
 function niceStep(raw){const e=Math.pow(10,Math.floor(Math.log10(raw)));const f=raw/e;return(f<1.5?1:f<3.5?2:f<7.5?5:10)*e}
 function heatCol(x,a){ // x 0..1
@@ -744,7 +758,7 @@ cv.addEventListener('pointerdown',e=>{
   ptrs.set(e.pointerId,{x:(e.clientX-r.left)/UK,y:(e.clientY-r.top)/UK});moved=0;tapT=Date.now();
   const p=ptrs.get(e.pointerId);
   if(ptrs.size===2){const a=[...ptrs.values()];pinch={d:Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y),bw:S.barW};panStart=null}
-  else panStart={x:p.x,y:p.y,right:S.right,axis:p.x>plotW,yz:S.yZoom};
+  else{if(p.x>plotW&&Date.now()-(S._at||0)<350){S.yZoom=1;S.yOff=0;dirty=true}if(p.x>plotW)S._at=Date.now();panStart={x:p.x,y:p.y,right:S.right,axis:p.x>plotW,yz:S.yZoom,yo:S.yOff||0}}
 });
 cv.addEventListener('pointermove',e=>{
   const r=cv.getBoundingClientRect(),x=(e.clientX-r.left)/UK,y=(e.clientY-r.top)/UK;
@@ -753,7 +767,7 @@ cv.addEventListener('pointermove',e=>{
   if(panStart&&ptrs.has(e.pointerId)){
     const dx=x-panStart.x,dy=y-panStart.y;moved=Math.max(moved,Math.abs(dx)+Math.abs(dy));
     if(panStart.axis){S.yZoom=Math.max(0.15,Math.min(8,panStart.yz*Math.exp(dy*0.006)))}
-    else if(moved>6||S.tool==='cross'){S.right=panStart.right-dx/S.barW;
+    else if(moved>6||S.tool==='cross'){S.right=panStart.right-dx/S.barW;if(moved>6)S.yOff=panStart.yo+dy*(yMax-yMin)/(mainH*0.92);
       const n=S.bars.length;S.right=Math.max(5,Math.min(n+60,S.right))}
     dirty=true;
   }
@@ -873,7 +887,7 @@ function sheetInd(){openSheet('المؤشرات',b=>{
     const c=d.querySelector('input');d.onclick=e=>{if(e.target!==c)c.checked=!c.checked;S.sh[k]=c.checked;if(c.checked)S.hid[k]=false;if(k==='vol'&&c.checked)S.sh.delta=false;if(k==='delta'&&c.checked)S.sh.vol=false;save();dirty=true;sheetInd()}}
   sec(b,'مؤشرات الكود');
   for(const i of S.inds){const d=li(b,'<span class="g">'+i.name+(i.builtin?' <span class="small">(مدمج)</span>':'')+'</span><button class="btn" data-a="e" style="padding:8px 12px">تعديل</button>'+(i.builtin?'':'<button class="btn" data-a="d" style="padding:8px 12px;color:#ef5350">حذف</button>')+'<input type="checkbox" '+(i.on?'checked':'')+'>',()=>{},false);
-    const c=d.querySelector('input');d.onclick=e=>{const a=e.target.dataset&&e.target.dataset.a;if(a==='e'){closeSheet();openEditor(i);return}if(a==='d'){libSave(i);removeFromChart(i);toast('انحذف من الشارت (محفوظ في المكتبة)');sheetInd();return}if(e.target!==c)c.checked=!c.checked;i.on=c.checked;if(c.checked)S.hid[i.id]=false;save();dirty=true;legKey=''}}
+    const c=d.querySelector('input');d.onclick=e=>{const a=e.target.dataset&&e.target.dataset.a;if(a==='e'){closeSheet();openIndSettings(i);return}if(a==='d'){libSave(i);removeFromChart(i);toast('انحذف من الشارت (محفوظ في المكتبة)');sheetInd();return}if(e.target!==c)c.checked=!c.checked;i.on=c.checked;if(c.checked)S.hid[i.id]=false;save();dirty=true;legKey=''}}
   const lib=libGet().filter(x=>!S.inds.some(i=>i.id===x.id));
   if(lib.length){sec(b,'المكتبة المحفوظة (غير مضافة للشارت)');
     for(const x of lib){const d=li(b,'<span class="g">'+x.name+'</span><button class="btn on" data-a="a" style="padding:8px 12px">إضافة</button><button class="btn" data-a="x" style="padding:8px 12px;color:#ef5350">حذف نهائي</button>',()=>{},false);
@@ -885,7 +899,7 @@ function sheetMore(){openSheet('إعدادات الشارت',b=>{
   tile(g,'candles','نوع الرسم: '+CTN[S.ct],()=>{closeSheet();sheetType()});
   tile(g,'info',S.demoPref?'إيقاف الوضع التجريبي':'تشغيل الوضع التجريبي',()=>{S.demoPref=!S.demoPref;closeSheet();reset()});
   tile(g,'plus','ملء الشاشة',()=>{closeSheet();const d=document.documentElement;if(!document.fullscreenElement)(d.requestFullscreen||d.webkitRequestFullscreen||function(){}).call(d);else document.exitFullscreen()});
-  tile(g,'ind','آخر شمعة + إعادة الزوم',()=>{closeSheet();S.yZoom=1;S.barW=10;goLast();dirty=true});
+  tile(g,'ind','آخر شمعة + إعادة الزوم',()=>{closeSheet();S.yZoom=1;S.yOff=0;S.barW=10;goLast();dirty=true});
 })}
 function sheetAlerts(){openSheet('التنبيهات',b=>{
   const inp=document.createElement('input');inp.type='number';inp.step='any';inp.value=S.bars.length?S.bars[S.bars.length-1].c.toFixed(S.sym.dec):'';inp.placeholder='السعر';b.appendChild(inp);
@@ -970,7 +984,7 @@ let legOpen=false,legKey='';
 function legRows(){
   const rows=[];
   for(const k of Object.keys(SHN)){if(S.hid[k])continue;rows.push({n:SHN[k],on:S.sh[k],tg:v=>{S.sh[k]=v;if(k==='vol'&&v)S.sh.delta=false;if(k==='delta'&&v)S.sh.vol=false},ed:()=>openCfg(k),del:()=>{S.sh[k]=false;S.hid[k]=true;save();dirty=true;legKey='';toast('انحذف من الشارت (يرجع من قائمة المؤشرات)')}})}
-  for(const i of S.inds){if(S.hid[i.id])continue;rows.push({n:i.name,on:i.on,tg:v=>{i.on=v},ed:()=>openEditor(i),err:runErr[i.id],del:()=>{if(i.builtin){i.on=false;S.hid[i.id]=true;save();toast('انحذف من الشارت (يرجع من قائمة المؤشرات)')}else{libSave(i);removeFromChart(i);toast('انحذف من الشارت (محفوظ في المكتبة)')}dirty=true;legKey=''}})}
+  for(const i of S.inds){if(S.hid[i.id])continue;rows.push({n:i.name,on:i.on,tg:v=>{i.on=v},ed:()=>openIndSettings(i),err:runErr[i.id],del:()=>{if(i.builtin){i.on=false;S.hid[i.id]=true;save();toast('انحذف من الشارت (يرجع من قائمة المؤشرات)')}else{libSave(i);removeFromChart(i);toast('انحذف من الشارت (محفوظ في المكتبة)')}dirty=true;legKey=''}})}
   return rows;
 }
 function buildLegs(){
