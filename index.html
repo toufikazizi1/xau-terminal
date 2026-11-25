@@ -264,6 +264,23 @@ async function loadHistory(){
     if(out.length){const live=S.bars.filter(b=>b.t>out[out.length-1].t);S.bars=out.concat(live);S.gotData=true;goLast();dirty=true}
   }catch(e){}
 }
+let lastHL=0,hlPx=0,bkPx=0,offs=0,xw=[];
+const XS={GOLD:{bn:'xauusdt',by:'XAUTUSDT'},BTC:{bn:'btcusdt',by:'BTCUSDT'},ETH:{bn:'ethusdt',by:'ETHUSDT'},SOL:{bn:'solusdt',by:'SOLUSDT'}};
+function xsrc(){return XS[S.sym.id]||{bn:S.sym.id.toLowerCase()+'usdt',by:S.sym.id+'USDT'}}
+function backup(px,sz,buy,src){bkPx=px;const hlFresh=Date.now()-lastHL<8000;if(hlFresh){if(hlPx)offs=hlPx-px;return}if(S.demo||!S.bars.length)return;if(!hlPx&&!S._oi){offs=S.bars[S.bars.length-1].c-px;S._oi=true}addTrade(Date.now(),px+offs,sz,buy);S.src=src;setStatus('live','مباشر · '+src+' (احتياطي)')}
+function closeX(){for(const w of xw){try{w.onclose=null;w.close()}catch(e){}}xw=[]}
+function openX(tok){
+  closeX();const x=xsrc();
+  const mk=(url,onopen,onmsg,name)=>{let w;try{w=new WebSocket(url)}catch(e){return}xw.push(w);
+    w.onopen=()=>onopen&&onopen(w);w.onmessage=e=>{try{onmsg(JSON.parse(e.data))}catch(_){}};
+    w.onclose=()=>{if(tok===S.tok&&!S.demo)setTimeout(()=>{if(tok===S.tok)openXone(tok,name)},4000)};w.onerror=()=>{}};
+  S._mk=mk;S._x=x;openXone(tok,'bn');openXone(tok,'by');
+}
+function openXone(tok,name){
+  const mk=S._mk,x=S._x;if(!mk||tok!==S.tok)return;
+  if(name==='bn')mk('wss://fstream.binance.com/ws/'+x.bn+'@aggTrade',null,m=>{if(m.e==='aggTrade')backup(+m.p,+m.q,!m.m,'Binance')},'bn');
+  else mk('wss://stream.bybit.com/v5/public/linear',w=>w.send(JSON.stringify({op:'subscribe',args:['publicTrade.'+x.by]})),m=>{if(m.topic&&m.data)for(const t of m.data)backup(+t.p,+t.v,t.S==='Buy','Bybit')},'by');
+}
 let ws=null,gotTimer=null,pingT=null,lastMsg=Date.now();
 setInterval(()=>{if(!S.demo&&ws&&Date.now()-lastMsg>20000){lastMsg=Date.now();connect()}},5000);
 setInterval(()=>{if(!S.demo&&S.bars.length){const n0=S.bars.length,wasEnd=S.right>=n0-1+2;fillTo(Date.now(),S.bars[n0-1].c);if(wasEnd&&S.bars.length>n0)S.right+=S.bars.length-n0;dirty=true}},1000);
@@ -272,19 +289,19 @@ function connect(){
   const tok=S.tok;
   if(ws){try{ws.onclose=null;ws.close()}catch(e){}ws=null}
   clearTimeout(gotTimer);
-  if(S.demo){setStatus('demo','وضع تجريبي (بيانات وهمية)');return}
-  setStatus('','يتصل...');
+  if(S.demo){closeX();setStatus('demo','وضع تجريبي (بيانات وهمية)');return}
+  hlPx=0;lastHL=0;offs=0;S._oi=false;setStatus('','يتصل...');openX(tok);
   try{ws=new WebSocket('wss://api.hyperliquid.xyz/ws')}catch(e){startDemo(true);return}
   ws.onopen=()=>{
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'trades',coin:S.sym.coin}}));
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'l2Book',coin:S.sym.coin}}));
-    setStatus('live','مباشر · Hyperliquid');lastMsg=Date.now();
+    setStatus('live','مباشر · Hyperliquid v3');lastMsg=Date.now();
     clearInterval(pingT);pingT=setInterval(()=>{try{ws.send(JSON.stringify({method:'ping'}))}catch(e){}},25000);
     gotTimer=setTimeout(()=>{if(tok===S.tok&&!S.gotData)startDemo(true)},9000);
   };
   ws.onmessage=e=>{
     lastMsg=Date.now();let m;try{m=JSON.parse(e.data)}catch(x){return}
-    if(m.channel==='trades'){for(const t of m.data){if(t.coin===S.sym.coin)addTrade(+t.time,+t.px,+t.sz,t.side==='B');else{const o=SYMS.find(x=>x.coin===t.coin);if(o)S.last[o.id]=+t.px}}}
+    if(m.channel==='trades'){for(const t of m.data){if(t.coin===S.sym.coin){lastHL=Date.now();hlPx=+t.px;}if(t.coin===S.sym.coin)addTrade(+t.time,+t.px,+t.sz,t.side==='B');else{const o=SYMS.find(x=>x.coin===t.coin);if(o)S.last[o.id]=+t.px}}}
     else if(m.channel==='l2Book'){const L=m.data.levels;pushBook(L[0].map(x=>[+x.px,+x.sz]),L[1].map(x=>[+x.px,+x.sz]))}
   };
   ws.onclose=()=>{if(tok===S.tok&&!S.demo){setStatus('err','انقطع الاتصال، يعيد...');setTimeout(()=>{if(tok===S.tok)connect()},2500)}};
