@@ -249,6 +249,15 @@ function pushBook(bids,asks){
   if(L&&t-L.t<350)return;
   S.snaps.push({t,bids,asks});if(S.snaps.length>1200)S.snaps.shift();dirty=true;
 }
+async function altKlines(iv){
+  const x=xsrc(),m=new Map();
+  try{const r=await fetch('https://fapi.binance.com/fapi/v1/klines?symbol='+x.bn.toUpperCase()+'&interval='+iv+'&limit=500');const K=await r.json();
+    if(Array.isArray(K)&&K.length){for(const k of K)m.set(+k[0],[+k[1],+k[2],+k[3],+k[4],+k[5],+k[9]]);S.altSrc='Binance';return m}}catch(e){}
+  try{const bi={'1m':'1','5m':'5','15m':'15','1h':'60','4h':'240','1d':'D'}[iv];
+    const r=await fetch('https://api.bybit.com/v5/market/kline?category=linear&symbol='+x.by+'&interval='+bi+'&limit=1000');const j=await r.json();
+    const L=j&&j.result&&j.result.list;if(Array.isArray(L)&&L.length){for(const k of L)m.set(+k[0],[+k[1],+k[2],+k[3],+k[4],+k[5],null]);S.altSrc='Bybit';return m}}catch(e){}
+  return m;
+}
 async function loadHistory(){
   const iv=HLINT[S.tf];if(!iv)return;
   const tok=S.tok;
@@ -261,14 +270,15 @@ async function loadHistory(){
       out.push({t:+c.t,o,h,l,c:cl,v,bv:v*bf,sv:v*(1-bf),lv:{},est:true})}
     const fl=[];for(const c of out){if(fl.length){let p=fl[fl.length-1];while(p.t+tfMs()<c.t&&fl.length<8000){p=newBar(p.t+tfMs(),p.c);p.est=true;p.flat=true;fl.push(p)}}fl.push(c)}
     out.length=0;for(const c of fl)out.push(c);
-    try{const kr=await fetch('https://fapi.binance.com/fapi/v1/klines?symbol='+xsrc().bn.toUpperCase()+'&interval='+iv+'&limit=500');const K=await kr.json();
-      if(Array.isArray(K)&&K.length){const km=new Map();for(const k of K)km.set(+k[0],k);
-        const df=[];for(const c of out){const k=km.get(c.t);if(k&&!c.flat&&c.v>0)df.push(c.c-(+k[4]))}
-        df.sort((a,b)=>a-b);const off=df.length?df[df.length>>1]:(out.length&&K.length?out[out.length-1].c-(+K[K.length-1][4]):0);
+    try{const km=await altKlines(iv);
+      if(km&&km.size){
+        const df=[];for(const c of out){const k=km.get(c.t);if(k&&!c.flat&&c.v>0)df.push(c.c-k[3])}
+        df.sort((a,b)=>a-b);let off=df.length?df[df.length>>1]:null;
+        if(off===null){const ks=[...km.keys()].sort((a,b)=>a-b);const lk=km.get(ks[ks.length-1]);off=out.length?out[out.length-1].c-lk[3]:0}
         let n=0;for(let i=0;i<out.length;i++){const c=out[i];if(c.v>0&&!c.flat)continue;const k=km.get(c.t);if(!k)continue;
-          const o=+k[1]+off,h=+k[2]+off,l=+k[3]+off,cl=+k[4]+off,v=+k[5],tb=+k[9];
-          out[i]={t:c.t,o,h,l,c:cl,v,bv:tb,sv:Math.max(0,v-tb),lv:{},est:true};n++}
-        S.bnFill=n;S.bnOff=off}}catch(e){}
+          const o=k[0]+off,h=k[1]+off,l=k[2]+off,cl=k[3]+off,v=k[4];const rg=h-l,bf=k[5]!=null?k[5]/(v||1):(rg>0?(cl-l)/rg:0.5);
+          out[i]={t:c.t,o,h,l,c:cl,v,bv:v*bf,sv:v*(1-bf),lv:{},est:true};n++}
+        S.bnFill=n;S.bnOff=off}}catch(e){S.bnErr=String(e)}
     if(out.length){const live=S.bars.filter(b=>b.t>out[out.length-1].t);S.bars=out.concat(live);S.gotData=true;goLast();dirty=true}
   }catch(e){}
 }
@@ -303,7 +313,7 @@ function connect(){
   ws.onopen=()=>{
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'trades',coin:S.sym.coin}}));
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'l2Book',coin:S.sym.coin}}));
-    setStatus('live','مباشر · Hyperliquid v5');lastMsg=Date.now();
+    setStatus('live','مباشر · Hyperliquid v6');lastMsg=Date.now();
     clearInterval(pingT);pingT=setInterval(()=>{try{ws.send(JSON.stringify({method:'ping'}))}catch(e){}},25000);
     gotTimer=setTimeout(()=>{if(tok===S.tok&&!S.gotData)startDemo(true)},9000);
   };
