@@ -306,6 +306,33 @@ function pushBook(bids,asks){
   if(L&&t-L.t<1000)return;
   S.snaps.push({t,bids,asks});if(S.snaps.length>4000)S.snaps.shift();dirty=true;
 }
+const IVMS={'1m':6e4,'3m':18e4,'5m':3e5,'15m':9e5,'30m':18e5,'1h':36e5,'2h':72e5,'4h':144e5,'8h':288e5,'12h':432e5,'1d':864e5};
+/* سدّ الفجوات: مصادر إضافية (Gate spot / Bitget / MEXC) تملأ الدقائق الفارغة فقط بعد محاذاة السعر */
+async function altExtra(iv,x,m){
+  const step=IVMS[iv];if(!step)return;
+  const base=x.ok.replace('-USDT-SWAP',''),now=Date.now();
+  const ks=[...m.keys()].sort((a,b)=>a-b);
+  const end=Math.floor(now/step)*step-step,from=Math.max(end-300*step,ks.length?ks[0]:end-300*step);
+  let miss=0;for(let t=from;t<=end;t+=step)if(!m.has(t))miss++;
+  if(!miss)return;
+  const J=async u=>{const c=new AbortController(),tm=setTimeout(()=>c.abort(),5000);try{const r=await fetch(u,{signal:c.signal});return await r.json()}catch(e){return null}finally{clearTimeout(tm)}};
+  const gs={'1m':'1m','5m':'5m','15m':'15m','30m':'30m','1h':'1h','4h':'4h','8h':'8h','1d':'1d'}[iv];
+  const bg={'1m':'1min','5m':'5min','15m':'15min','30m':'30min','1h':'1h','4h':'4h','12h':'12h','1d':'1day'}[iv];
+  const mx={'1m':'1m','5m':'5m','15m':'15m','30m':'30m','1h':'60m','4h':'4h','1d':'1d'}[iv];
+  const jobs=[];
+  if(gs)jobs.push(J('https://api.gateio.ws/api/v4/spot/candlesticks?currency_pair='+base+'_USDT&interval='+gs+'&limit=1000').then(j=>Array.isArray(j)?j.map(k=>[+k[0]*1000,+k[5],+k[3],+k[4],+k[2],+k[1]]):[]));
+  if(bg)jobs.push(J('https://api.bitget.com/api/v2/spot/market/candles?symbol='+base+'USDT&granularity='+bg+'&limit=1000').then(j=>j&&Array.isArray(j.data)?j.data.map(k=>[+k[0],+k[1],+k[2],+k[3],+k[4],+k[5]]):[]));
+  if(mx)jobs.push(J('https://api.mexc.com/api/v3/klines?symbol='+base+'USDT&interval='+mx+'&limit=1000').then(j=>Array.isArray(j)?j.map(k=>[+k[0],+k[1],+k[2],+k[3],+k[4],+k[5]]):[]));
+  const res=await Promise.all(jobs.map(p=>p.catch(()=>[])));let usedAlone=false;
+  for(const rows of res){
+    if(!rows.length)continue;
+    const e=new Map();for(const k of rows)if(k[0]>0&&k[4]>0)e.set(k[0],k);
+    const df=[];for(const [t,k] of e){const q=m.get(t);if(q)df.push(q[3]-k[4])}
+    df.sort((a,b)=>a-b);let off=0;if(df.length>=5)off=df[df.length>>1];else if(m.size||usedAlone)continue;else usedAlone=true;
+    let n=0;for(const [t,k] of e){if(m.has(t)||t<from||t>end)continue;m.set(t,[k[1]+off,k[2]+off,k[3]+off,k[4]+off,k[5],null]);n++}
+    if(n)S.altSrc=(S.altSrc||'')+'+';
+  }
+}
 async function altKlines(iv,pages){
   const x=xsrc(),m=new Map();
   try{const bar={'1m':'1m','3m':'3m','5m':'5m','15m':'15m','30m':'30m','1h':'1H','2h':'2H','4h':'4H','12h':'12H','1d':'1D','3d':'3D','1w':'1W','1M':'1M'}[iv];
@@ -316,6 +343,7 @@ async function altKlines(iv,pages){
   if(!m.size){try{const iv2={'1m':'1m','5m':'5m','15m':'15m','30m':'30m','1h':'1h','4h':'4h','8h':'8h','1d':'1d','1w':'7d'}[iv];
     if(iv2){const r=await fetch('https://api.gateio.ws/api/v4/futures/usdt/candlesticks?contract='+(x.ok.replace('-USDT-SWAP','')+'_USDT')+'&interval='+iv2+'&limit=1000');const j=await r.json();
     if(Array.isArray(j)&&j.length){for(const k of j)m.set(+k.t*1000,[+k.o,+k.h,+k.l,+k.c,+k.v,null]);S.altSrc='Gate'}}}catch(e){}}
+  try{await altExtra(iv,x,m)}catch(e){}
   return m;
 }
 async function altAgg(iv,bsec,ms,pages){
@@ -398,7 +426,7 @@ function connect(){
   ws.onopen=()=>{
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'trades',coin:S.sym.coin}}));
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'l2Book',coin:S.sym.coin}}));
-    setStatus('live','مباشر · Hyperliquid v21');lastMsg=Date.now();
+    setStatus('live','مباشر · Hyperliquid v22');lastMsg=Date.now();
     clearInterval(pingT);pingT=setInterval(()=>{try{ws.send(JSON.stringify({method:'ping'}))}catch(e){}},25000);
     gotTimer=setTimeout(()=>{if(tok===S.tok&&!S.gotData)startDemo(true)},9000);
   };
@@ -662,7 +690,7 @@ function drawSeries(){
     let ww=Math.max(1,Math.min(Math.floor(pr),Math.floor(bw*pr)));
     let bwd=lwcBodyW(bw,pr);if(bwd>=2&&ww%2!==bwd%2)bwd--;
     const yh=Math.round(yOf(b.h)*pr),yl=Math.round(yOf(b.l)*pr);
-    let yt=Math.round(yOf(Math.max(b.o,b.c))*pr),yb=Math.round(yOf(Math.min(b.o,b.c))*pr);if(yb<=yt)yb=yt+1;
+    let yt=Math.round(yOf(Math.max(b.o,b.c))*pr),yb=Math.round(yOf(Math.min(b.o,b.c))*pr);if(yb<=yt)yb=yt+2;
     cx.save();cx.setTransform(1,0,0,1,0,0);
     cx.fillRect(xd-Math.floor(ww/2),yh,ww,Math.max(1,yl-yh));
     cx.fillRect(xd-Math.floor(bwd/2),yt,bwd,yb-yt);
@@ -1221,11 +1249,12 @@ let lastRun=0;
 const PT0=(a)=>({bal:a||10000,dep:a||10000,pos:[],ord:[],hist:[],net:0,resets:0,seq:1});
 S.pt=(()=>{try{return Object.assign(PT0(),JSON.parse(localStorage.getItem('xt_pt')||'{}'))}catch(e){return PT0()}})();
 function ptSave(){try{localStorage.setItem('xt_pt',JSON.stringify(S.pt))}catch(e){}}
-const FEE=0.0003;
+const FEE=0.0001;
 const ptPx=id=>S.last[id]||0;
 const ptPnl=(p,px)=>(px-p.entry)*p.qty*(p.side==='buy'?1:-1);
+const ptNet=(p,px)=>ptPnl(p,px)-p.fee-p.qty*px*FEE; // الصافي بعد رسوم الدخول والخروج = ما سيُسجَّل عند الإغلاق
 const fm=(v,d)=>(v<0?'-':'')+Math.abs(v).toLocaleString('en-US',{minimumFractionDigits:d===undefined?2:d,maximumFractionDigits:d===undefined?2:d});
-function ptEquity(){let u=0,m=0;for(const p of S.pt.pos){const px=ptPx(p.sym)||p.entry;u+=ptPnl(p,px);m+=p.margin}return{eq:S.pt.bal+m+u,u,m}}
+function ptEquity(){let u=0,m=0;for(const p of S.pt.pos){const px=ptPx(p.sym)||p.entry;u+=ptNet(p,px);m+=p.margin+p.fee}return{eq:S.pt.bal+m+u,u,m}}
 function ptOpen(side,sym,margin,lev,sl,tp,px){
   const P=S.pt,fee=margin*lev*FEE;
   if(!(margin>0)||margin+fee>P.bal+1e-9){toast('الرصيد غير كافٍ');return false}
@@ -1303,7 +1332,7 @@ function sheetAcc(){openSheet('حسابي',b=>{
   dp.querySelectorAll('.seg button').forEach(x=>x.onclick=()=>doDep(+x.dataset.v));
   b.appendChild(dp);
   sec(b,'المراكز المفتوحة ('+P.pos.length+')');
-  for(const p of P.pos){const px=ptPx(p.sym)||p.entry,u=ptPnl(p,px),d=document.createElement('div');d.className='prow';
+  for(const p of P.pos){const px=ptPx(p.sym)||p.entry,u=ptNet(p,px),d=document.createElement('div');d.className='prow';
     d.innerHTML='<div class="r"><b>'+(p.side==='buy'?'🟢 شراء ':'🔴 بيع ')+p.sym+' · '+p.lev+'x</b><b class="'+(u>=0?'pnl-up':'pnl-dn')+'">'+(u>=0?'+':'')+fm(u)+'$</b></div><div class="r"><span>دخول '+fm(p.entry,4)+'</span><span>الآن '+fm(px,4)+'</span></div><div class="r"><span>SL '+(p.sl?fm(p.sl,4):'-')+'</span><span>TP '+(p.tp?fm(p.tp,4):'-')+'</span></div><div class="r"><button class="btn" data-a="sl">SL/TP</button><button class="btn" data-a="c" style="color:#ef5350">إغلاق</button></div>';
     d.querySelector('[data-a=c]').onclick=()=>{ptClose(p,ptPx(p.sym)||p.entry,'إغلاق يدوي');sheetAcc()};
     d.querySelector('[data-a=sl]').onclick=()=>{const a=prompt('وقف الخسارة (0 = بدون)',p.sl||'');if(a===null)return;const t=prompt('جني الأرباح (0 = بدون)',p.tp||'');if(t===null)return;p.sl=+a||0;p.tp=+t||0;ptSave();dirty=true;sheetAcc()};
@@ -1330,7 +1359,7 @@ function openPosSheet(p,kind){
     if(isOrd){
       b.innerHTML='<div class="small" style="padding:6px 2px">'+(p.side==='buy'?'Limit شراء ':'Limit بيع ')+p.sym+' @ '+fm(p.price,dec)+'</div><button class="btn" id="oc" style="width:100%;padding:14px;color:#ef5350">إلغاء الأمر</button>';
       b.querySelector('#oc').onclick=()=>{S.pt.ord=S.pt.ord.filter(x=>x!==p);ptSave();dirty=true;closeSheet();toast('أُلغي الأمر')};return}
-    const u=ptPnl(p,px);
+    const u=ptNet(p,px);
     b.innerHTML='<div class="prow"><div class="r"><b>'+(p.side==='buy'?'🟢 شراء ':'🔴 بيع ')+p.sym+' · '+p.lev+'x</b><b class="'+(u>=0?'pnl-up':'pnl-dn')+'">'+(u>=0?'+':'')+fm(u)+'$</b></div><div class="r"><span>دخول '+fm(p.entry,dec)+'</span><span>الآن '+fm(px,dec)+'</span></div></div>'+
      '<div class="fld"><label>وقف الخسارة SL</label><input type="number" id="pSL" step="any" value="'+(p.sl||'')+'"></div><div class="r" style="display:flex;gap:8px;margin:4px 0"><button class="btn" id="pSLc" style="flex:1">تحديد من الشارت</button><button class="btn" id="pSLx" style="flex:1">إزالة</button></div>'+
      '<div class="fld"><label>جني الأرباح TP</label><input type="number" id="pTP" step="any" value="'+(p.tp||'')+'"></div><div class="r" style="display:flex;gap:8px;margin:4px 0"><button class="btn" id="pTPc" style="flex:1">تحديد من الشارت</button><button class="btn" id="pTPx" style="flex:1">إزالة</button></div>'+
@@ -1352,9 +1381,9 @@ function drawPT(){
   const P=S.pt;cx.font='bold 12px sans-serif';cx.textBaseline='middle';
   const line=(p,col,lbl,dash,x0)=>{if(!p||p<yMin||p>yMax)return;const y=Math.round(yOf(p))+.5;cx.strokeStyle=col;cx.lineWidth=1.3;cx.setLineDash(dash?[6,4]:[]);cx.beginPath();cx.moveTo(0,y);cx.lineTo(plotW,y);cx.stroke();cx.setLineDash([]);
     if(lbl){const w=cx.measureText(lbl).width+14;cx.fillStyle=col;cx.fillRect(x0,y-10,w,20);cx.fillStyle='#fff';cx.textAlign='left';cx.fillText(lbl,x0+7,y)}};
-  for(const p of P.pos){if(p.sym!==S.sym.id)continue;const px=ptPx(p.sym)||p.entry,u=ptPnl(p,px),col=p.side==='buy'?'#26a69a':'#ef5350';
+  for(const p of P.pos){if(p.sym!==S.sym.id)continue;const px=ptPx(p.sym)||p.entry,u=ptNet(p,px),col=p.side==='buy'?'#26a69a':'#ef5350';
     line(p.entry,col,(p.side==='buy'?'شراء ':'بيع ')+p.lev+'x  '+(u>=0?'+':'')+fm(u)+'$',false,90);
-    if(p.sl)line(p.sl,'#ef5350','SL '+fm(ptPnl(p,p.sl),2)+'$',true,6);if(p.tp)line(p.tp,'#26a69a','TP +'+fm(ptPnl(p,p.tp),2)+'$',true,6)}
+    if(p.sl)line(p.sl,'#ef5350','SL '+fm(ptNet(p,p.sl),2)+'$',true,6);if(p.tp)line(p.tp,'#26a69a','TP +'+fm(ptNet(p,p.tp),2)+'$',true,6)}
   for(const o of P.ord){if(o.sym!==S.sym.id)continue;line(o.price,'#ffb300',(o.side==='buy'?'Limit شراء':'Limit بيع'),true,6)}
 }
 function loop(){
