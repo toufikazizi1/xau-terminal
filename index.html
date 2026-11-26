@@ -38,6 +38,15 @@ canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
 .ib svg{width:26px;height:26px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 #legTgl{background:#1c1c1f;border:1px solid var(--bd);border-radius:8px;width:44px;height:34px;color:#ddd;margin-top:2px}
 #toolPill{position:absolute;top:8px;right:76px;background:var(--ac);color:#fff;border-radius:16px;padding:4px 10px;font-size:12px;display:none;z-index:3;cursor:pointer;direction:rtl}
+#ptb{position:absolute;bottom:46px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:4;align-items:stretch}
+#ptb button{border:0;border-radius:14px;color:#fff;font:800 17px inherit;min-width:104px;height:54px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.15;box-shadow:0 2px 10px #0008}
+#ptb .b{background:#26a69a}#ptb .s{background:#ef5350}#ptb small{font:600 11px inherit;opacity:.92}
+#ptb .acc{background:#23262fee;min-width:112px;font-size:15px}
+.seg{display:flex;gap:6px;margin:6px 0}.seg button{flex:1;padding:12px;border-radius:10px;border:1px solid #333;background:#1b1d24;color:#ddd;font:700 15px inherit;cursor:pointer}
+.seg button.on.b{background:#26a69a;border-color:#26a69a;color:#fff}.seg button.on.s{background:#ef5350;border-color:#ef5350;color:#fff}.seg button.on{background:#2962ff;border-color:#2962ff;color:#fff}
+.fld{display:flex;align-items:center;gap:10px;margin:8px 0}.fld label{flex:1;font-size:14px;color:#aaa}.fld input[type=number]{width:140px;direction:ltr;font-size:16px;padding:10px;background:#1b1d24;border:1px solid #333;color:#fff;border-radius:8px}
+.pnl-up{color:#26a69a}.pnl-dn{color:#ef5350}
+.prow{background:#1b1d24;border-radius:12px;padding:12px;margin:8px 0;display:flex;flex-direction:column;gap:6px;font-size:14px}.prow .r{display:flex;justify-content:space-between;gap:8px;align-items:center}
 #toast{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);background:#000d;padding:7px 14px;border-radius:8px;font-size:12px;display:none;z-index:3;white-space:nowrap}
 #ctb{flex:none;display:flex;align-items:center;gap:4px;padding:8px 10px;background:var(--bg);border-top:1px solid var(--bd);direction:ltr}
 #ctb .sp{flex:1}
@@ -101,7 +110,8 @@ html.wide #sheet{left:50%;right:auto;width:560px;transform:translateX(-50%);anim
       <button id="legTgl">⌄</button>
     </div>
     <div id="toolPill"></div>
-    <div id="toast"></div>
+    <div id="ptb"><button class="s" id="ptSell"><span>بيع</span><small id="ptSellP"></small></button><button class="acc" id="ptAcc"><span id="ptEq">10,000$</span><small id="ptPnl">حسابي</small></button><button class="b" id="ptBuy"><span>شراء</span><small id="ptBuyP"></small></button></div>
+<div id="toast"></div>
    </div>
    <div id="ctb">
      <button class="tb" id="tbUndo" title="تراجع"></button>
@@ -379,7 +389,7 @@ function connect(){
   ws.onopen=()=>{
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'trades',coin:S.sym.coin}}));
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'l2Book',coin:S.sym.coin}}));
-    setStatus('live','مباشر · Hyperliquid v18');lastMsg=Date.now();
+    setStatus('live','مباشر · Hyperliquid v19');lastMsg=Date.now();
     clearInterval(pingT);pingT=setInterval(()=>{try{ws.send(JSON.stringify({method:'ping'}))}catch(e){}},25000);
     gotTimer=setTimeout(()=>{if(tok===S.tok&&!S.gotData)startDemo(true)},9000);
   };
@@ -490,7 +500,7 @@ function pOfY(y){return yMax-(y-mainH*0.04)/(mainH*0.92)*(yMax-yMin)}
 function hasSub2(){return S.objs.some(o=>o.k==='sub')}
 function layout(){
   plotW=W-axisW;
-  sub1H=(S.sh.vol||S.sh.delta)?Math.round(H*0.18):0;
+  sub1H=(S.sh.vol||S.sh.delta)?Math.round(H*0.18):0;{const pb=$('ptb');if(pb)pb.style.bottom=(sub1H+36)+'px'}
   sub2H=hasSub2()?Math.round(H*0.14):0;
   mainH=H-axisH-sub1H-sub2H;
   const B=S.bars;
@@ -537,7 +547,7 @@ function draw(){
     if(S.sh.hvn||S.sh.prof)drawProfile();
     drawSeries();
     drawObjs();
-    drawUser();
+    drawUser();drawPT();
   }
   cx.restore();
   if(B.length){drawSubs();drawPriceTag();drawCross()}
@@ -1147,7 +1157,7 @@ function init(){
       else if(!i.builtin&&i.code)S.inds.push({id:i.id,name:i.name,code:i.code,params:i.params||{},on:i.on,builtin:false});
     }
   }
-  buildUI();resize();reset();loadDayOpen();
+  buildUI();resize();reset();loadDayOpen();ptUI();
   addEventListener('resize',resize);
   new ResizeObserver(resize).observe($('stage'));
   setInterval(()=>{if($('vWatch').classList.contains('on'))buildWatch()},800);
@@ -1156,6 +1166,109 @@ function init(){
 }
 
 let lastRun=0;
+
+/* ================= التداول التجريبي ================= */
+const PT0=()=>({bal:10000,pos:[],ord:[],hist:[],net:0,resets:0,seq:1});
+S.pt=(()=>{try{return Object.assign(PT0(),JSON.parse(localStorage.getItem('xt_pt')||'{}'))}catch(e){return PT0()}})();
+function ptSave(){try{localStorage.setItem('xt_pt',JSON.stringify(S.pt))}catch(e){}}
+const FEE=0.0003;
+const ptPx=id=>S.last[id]||0;
+const ptPnl=(p,px)=>(px-p.entry)*p.qty*(p.side==='buy'?1:-1);
+const fm=(v,d)=>(v<0?'-':'')+Math.abs(v).toLocaleString('en-US',{minimumFractionDigits:d===undefined?2:d,maximumFractionDigits:d===undefined?2:d});
+function ptEquity(){let u=0,m=0;for(const p of S.pt.pos){const px=ptPx(p.sym)||p.entry;u+=ptPnl(p,px);m+=p.margin}return{eq:S.pt.bal+m+u,u,m}}
+function ptOpen(side,sym,margin,lev,sl,tp,px){
+  const P=S.pt,fee=margin*lev*FEE;
+  if(!(margin>0)||margin+fee>P.bal+1e-9){toast('الرصيد غير كافٍ');return false}
+  const qty=margin*lev/px;P.bal-=margin+fee;
+  P.pos.push({id:P.seq++,sym,side,qty,entry:px,margin,lev,sl:sl||0,tp:tp||0,fee,t:Date.now()});ptSave();dirty=true;
+  toast((side==='buy'?'شراء ':'بيع ')+sym+' @ '+fm(px,S.sym.dec));return true}
+function ptClose(p,px,why){
+  const P=S.pt,pnl=ptPnl(p,px),cf=p.qty*px*FEE,net=pnl-cf-p.fee;
+  P.bal+=Math.max(0,p.margin+pnl-cf);P.net+=net;
+  P.pos=P.pos.filter(x=>x!==p);
+  P.hist.unshift({sym:p.sym,side:p.side,entry:p.entry,exit:px,net,why:why||'يدوي',t:Date.now()});if(P.hist.length>60)P.hist.pop();
+  ptSave();dirty=true;toast((net>=0?'ربح +':'خسارة ')+fm(net)+'$ — '+(why||'إغلاق'))}
+function ptCheck(){
+  const P=S.pt;let ch=false;
+  for(const p of [...P.pos]){const px=ptPx(p.sym);if(!px)continue;const pnl=ptPnl(p,px);
+    if(pnl<=-0.9*p.margin){ptClose(p,px,'تصفية (Liquidation)');ch=true;continue}
+    if(p.sl&&(p.side==='buy'?px<=p.sl:px>=p.sl)){ptClose(p,px,'وقف الخسارة');ch=true;continue}
+    if(p.tp&&(p.side==='buy'?px>=p.tp:px<=p.tp)){ptClose(p,px,'جني الأرباح');ch=true}}
+  for(const o of [...P.ord]){const px=ptPx(o.sym);if(!px)continue;
+    if(o.side==='buy'?px<=o.price:px>=o.price){P.ord=P.ord.filter(x=>x!==o);if(!ptOpen(o.side,o.sym,o.margin,o.lev,o.sl,o.tp,o.price))toast('أمر معلّق أُلغي: رصيد غير كافٍ');ch=true}}
+  const e=ptEquity();
+  if(!P.pos.length&&P.bal<1&&!P.blownShown){P.blownShown=true;toast('تصفّى الحساب — أعد من جديد');setTimeout(sheetAcc,600)}
+  if(ch)ptSave();ptUI()}
+function ptUI(){const e=ptEquity();$('ptEq').textContent=fm(e.eq,0)+'$';const u=e.u;
+  $('ptPnl').innerHTML=P_n()+'<span class="'+(u>=0?'pnl-up':'pnl-dn')+'" style="color:'+(u>=0?'#9be7df':'#ffb3b1')+'">'+(S.pt.pos.length?(u>=0?'+':'')+fm(u)+'$':'حسابي')+'</span>';
+  const px=ptPx(S.sym.id);$('ptBuyP').textContent=px?fm(px,S.sym.dec):'';$('ptSellP').textContent=px?fm(px,S.sym.dec):'';
+  if(curSheet&&$('sheet').style.display==='flex'&&curSheet.title==='حسابي'&&Date.now()-(S._ptr||0)>2000){S._ptr=Date.now();const sb=$('sbody'),t1=sb.scrollTop,t2=$('sheet').scrollTop;openSheet('حسابي',curSheet.fn,true);sb.scrollTop=t1;$('sheet').scrollTop=t2}}
+function P_n(){return ''}
+setInterval(ptCheck,500);
+function openTicket(side){
+  const sym=S.sym;let sd=side,ty='market';
+  openSheet('أمر جديد — '+sym.id,b=>{
+    b.innerHTML='<div class="seg" id="tSide"><button class="b" data-v="buy">شراء</button><button class="s" data-v="sell">بيع</button></div>'+
+     '<div class="seg" id="tType"><button data-v="market">سوق</button><button data-v="limit">محدّد (Limit)</button></div>'+
+     '<div class="fld" id="fPrice" style="display:none"><label>سعر الأمر</label><input type="number" id="tPrice" step="any"></div>'+
+     '<div class="fld"><label>الهامش (دولار)</label><input type="number" id="tMargin" value="500" step="any"></div>'+
+     '<div class="seg" id="tPct">'+[25,50,75,100].map(v=>'<button data-v="'+v+'">'+v+'%</button>').join('')+'</div>'+
+     '<div class="fld"><label>الرافعة <b id="tLevV">10</b>x</label><input type="range" id="tLev" min="1" max="100" value="10" style="width:150px"></div>'+
+     '<div class="fld"><label>وقف الخسارة (اختياري)</label><input type="number" id="tSL" step="any"></div>'+
+     '<div class="fld"><label>جني الأرباح (اختياري)</label><input type="number" id="tTP" step="any"></div>'+
+     '<div class="small" id="tInfo" style="padding:8px 2px;line-height:1.7"></div>'+
+     '<button class="btn on" id="tGo" style="width:100%;padding:16px;font-size:18px;margin-top:6px"></button>';
+    const g=id=>b.querySelector('#'+id);
+    const upd=()=>{const px=ptPx(sym.id),m=+g('tMargin').value||0,lv=+g('tLev').value,ep=ty==='limit'?(+g('tPrice').value||px):px;
+      g('tLevV').textContent=lv;g('fPrice').style.display=ty==='limit'?'':'none';
+      b.querySelectorAll('#tSide button').forEach(x=>x.classList.toggle('on',x.dataset.v===sd));
+      b.querySelectorAll('#tType button').forEach(x=>x.classList.toggle('on',x.dataset.v===ty));
+      const qty=ep?m*lv/ep:0,liq=qty?(sd==='buy'?ep-0.9*m/qty:ep+0.9*m/qty):0;
+      g('tInfo').innerHTML='الحجم: <b>'+fm(m*lv,0)+'$</b> ('+qty.toFixed(4)+')<br>سعر التصفية: <b>'+(liq?fm(liq,sym.dec):'-')+'</b> · الرسوم: '+fm(m*lv*FEE)+'$<br>الرصيد المتاح: <b>'+fm(S.pt.bal)+'$</b>';
+      const go=g('tGo');go.textContent=(sd==='buy'?'شراء ':'بيع ')+sym.id;go.style.background=sd==='buy'?'#26a69a':'#ef5350'};
+    b.querySelectorAll('#tSide button').forEach(x=>x.onclick=()=>{sd=x.dataset.v;upd()});
+    b.querySelectorAll('#tType button').forEach(x=>x.onclick=()=>{ty=x.dataset.v;if(ty==='limit'&&!g('tPrice').value)g('tPrice').value=ptPx(sym.id).toFixed(sym.dec);upd()});
+    b.querySelectorAll('#tPct button').forEach(x=>x.onclick=()=>{g('tMargin').value=(S.pt.bal/(1+(+g('tLev').value)*FEE)*(+x.dataset.v)/100).toFixed(2);upd()});
+    ['tMargin','tLev','tPrice'].forEach(i=>g(i).oninput=upd);
+    g('tGo').onclick=()=>{const px=ptPx(sym.id),m=+g('tMargin').value,lv=+g('tLev').value,sl=+g('tSL').value||0,tp=+g('tTP').value||0;
+      if(!px){toast('لا يوجد سعر بعد');return}
+      if(sl&&(sd==='buy'?sl>=px:sl<=px)){toast('وقف الخسارة في الاتجاه الخاطئ');return}
+      if(tp&&(sd==='buy'?tp<=px:tp>=px)){toast('جني الأرباح في الاتجاه الخاطئ');return}
+      if(ty==='market'){if(ptOpen(sd,sym.id,m,lv,sl,tp,px)){closeSheet();ptUI()}}
+      else{const pr=+g('tPrice').value;if(!(pr>0)){toast('أدخل سعر الأمر');return}
+        if(sd==='buy'?pr>=px:pr<=px){toast('Limit: الشراء تحت السعر والبيع فوقه');return}
+        S.pt.ord.push({id:S.pt.seq++,sym:sym.id,side:sd,price:pr,margin:m,lev:lv,sl,tp});ptSave();closeSheet();dirty=true;toast('تم وضع الأمر المعلّق')}};
+    upd();
+  });
+}
+function sheetAcc(){openSheet('حسابي',b=>{
+  const P=S.pt,e=ptEquity();
+  const sm=document.createElement('div');sm.className='prow';
+  sm.innerHTML='<div class="r"><span>الرصيد الكلي (Equity)</span><b>'+fm(e.eq)+'$</b></div><div class="r"><span>المتاح</span><b>'+fm(P.bal)+'$</b></div><div class="r"><span>الربح/الخسارة المفتوحة</span><b class="'+(e.u>=0?'pnl-up':'pnl-dn')+'">'+fm(e.u)+'$</b></div><div class="r"><span>صافي الأرباح المحققة</span><b class="'+(P.net>=0?'pnl-up':'pnl-dn')+'">'+fm(P.net)+'$</b></div><div class="r"><span>النقاط</span><b>'+fm(Math.max(0,P.net),0)+'</b></div><div class="r"><span>مرات إعادة الحساب</span><b>'+P.resets+'</b></div>';
+  b.appendChild(sm);
+  sec(b,'المراكز المفتوحة ('+P.pos.length+')');
+  for(const p of P.pos){const px=ptPx(p.sym)||p.entry,u=ptPnl(p,px),d=document.createElement('div');d.className='prow';
+    d.innerHTML='<div class="r"><b>'+(p.side==='buy'?'🟢 شراء ':'🔴 بيع ')+p.sym+' · '+p.lev+'x</b><b class="'+(u>=0?'pnl-up':'pnl-dn')+'">'+(u>=0?'+':'')+fm(u)+'$</b></div><div class="r"><span>دخول '+fm(p.entry,4)+'</span><span>الآن '+fm(px,4)+'</span></div><div class="r"><span>SL '+(p.sl?fm(p.sl,4):'-')+'</span><span>TP '+(p.tp?fm(p.tp,4):'-')+'</span></div><div class="r"><button class="btn" data-a="sl">SL/TP</button><button class="btn" data-a="c" style="color:#ef5350">إغلاق</button></div>';
+    d.querySelector('[data-a=c]').onclick=()=>{ptClose(p,ptPx(p.sym)||p.entry,'إغلاق يدوي');sheetAcc()};
+    d.querySelector('[data-a=sl]').onclick=()=>{const a=prompt('وقف الخسارة (0 = بدون)',p.sl||'');if(a===null)return;const t=prompt('جني الأرباح (0 = بدون)',p.tp||'');if(t===null)return;p.sl=+a||0;p.tp=+t||0;ptSave();dirty=true;sheetAcc()};
+    b.appendChild(d)}
+  if(P.ord.length){sec(b,'أوامر معلّقة');for(const o of P.ord){const d=document.createElement('div');d.className='prow';d.innerHTML='<div class="r"><b>'+(o.side==='buy'?'شراء ':'بيع ')+o.sym+' @ '+fm(o.price,4)+'</b><button class="btn" style="color:#ef5350">إلغاء</button></div>';d.querySelector('button').onclick=()=>{P.ord=P.ord.filter(x=>x!==o);ptSave();dirty=true;sheetAcc()};b.appendChild(d)}}
+  sec(b,'آخر الصفقات');
+  for(const h of P.hist.slice(0,15)){const d=document.createElement('div');d.className='prow';d.innerHTML='<div class="r"><span>'+(h.side==='buy'?'شراء ':'بيع ')+h.sym+' · '+h.why+'</span><b class="'+(h.net>=0?'pnl-up':'pnl-dn')+'">'+(h.net>=0?'+':'')+fm(h.net)+'$</b></div>';b.appendChild(d)}
+  if(!P.hist.length){const d=document.createElement('div');d.className='small';d.style.padding='8px';d.textContent='لا توجد صفقات بعد';b.appendChild(d)}
+  const rb=document.createElement('button');rb.className='btn';rb.style.cssText='width:100%;margin-top:14px;padding:14px;color:#ef5350';rb.textContent='إعادة الحساب من جديد (10,000$)';
+  rb.onclick=()=>{if(confirm('سيتم مسح المراكز والأرباح والبدء من 10,000$. متأكد؟')){const r=P.resets+1;S.pt=PT0();S.pt.resets=r;ptSave();dirty=true;ptUI();sheetAcc()}};
+  b.appendChild(rb)})}
+$('ptBuy').onclick=()=>openTicket('buy');$('ptSell').onclick=()=>openTicket('sell');$('ptAcc').onclick=sheetAcc;
+function drawPT(){
+  const P=S.pt;cx.font='bold 12px sans-serif';cx.textBaseline='middle';
+  const line=(p,col,lbl,dash,x0)=>{if(!p||p<yMin||p>yMax)return;const y=Math.round(yOf(p))+.5;cx.strokeStyle=col;cx.lineWidth=1.3;cx.setLineDash(dash?[6,4]:[]);cx.beginPath();cx.moveTo(0,y);cx.lineTo(plotW,y);cx.stroke();cx.setLineDash([]);
+    if(lbl){const w=cx.measureText(lbl).width+14;cx.fillStyle=col;cx.fillRect(x0,y-10,w,20);cx.fillStyle='#fff';cx.textAlign='left';cx.fillText(lbl,x0+7,y)}};
+  for(const p of P.pos){if(p.sym!==S.sym.id)continue;const px=ptPx(p.sym)||p.entry,u=ptPnl(p,px),col=p.side==='buy'?'#26a69a':'#ef5350';
+    line(p.entry,col,(p.side==='buy'?'شراء ':'بيع ')+p.lev+'x  '+(u>=0?'+':'')+fm(u)+'$',false,90);
+    if(p.sl)line(p.sl,'#ef5350','SL',true,6);if(p.tp)line(p.tp,'#26a69a','TP',true,6)}
+  for(const o of P.ord){if(o.sym!==S.sym.id)continue;line(o.price,'#ffb300',(o.side==='buy'?'Limit شراء':'Limit بيع'),true,6)}
+}
 function loop(){
   const now=performance.now();
   if(dirty){
