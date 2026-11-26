@@ -286,6 +286,7 @@ function fillTo(t,p){
 function addTrade(t,p,sz,buy){
   {const B0=S.bars;if(B0.length&&t<B0[B0.length-1].t)return;
    if(B0.length&&!S.demo){const lc=B0[B0.length-1].c;if(Math.abs(p-lc)/lc>0.01)return;if(bkPx&&Date.now()-lastHL<20000&&Math.abs(p-(bkPx+offs))/p>0.004&&Date.now()-lastBk<10000)return}}
+  const lvl=p;if(sz>0&&midHL&&!S.demo&&Date.now()-lastBook<2500)p=midHL; // الشمعة تُبنى من منتصف الدفتر (مثل MT5) لا من سعر الصفقة المتذبذب بين العرض والطلب
   const n0=S.bars.length,wasEnd=S.right>=n0-1+2;
   fillTo(t,p);
   if(wasEnd&&S.bars.length>n0)S.right+=S.bars.length-n0;
@@ -295,7 +296,7 @@ function addTrade(t,p,sz,buy){
   S.gotData=true;S.last[S.sym.id]=p;checkAlerts(p);
   if(sz>0){b.v+=sz;
   if(buy)b.bv+=sz;else b.sv+=sz;
-  const k=Math.round(p/S.sym.step);const L=b.lv[k]||(b.lv[k]=[0,0]);
+  const k=Math.round(lvl/S.sym.step);const L=b.lv[k]||(b.lv[k]=[0,0]);
   if(buy)L[1]+=sz;else L[0]+=sz;
   S.sizeEma=S.sizeEma?S.sizeEma*0.98+sz*0.02:sz;
   if(sz>S.sizeEma*S.cfg.bigt.k){S.big.push({t,p,sz,buy});if(S.big.length>500)S.big.shift()}}
@@ -376,6 +377,7 @@ async function loadHistory(){
           out[i]={t:c.t,o,h,l,c:cl,v,bv:v*bf,sv:v*(1-bf),lv:{},est:true};n++}
         for(let i=0;i<out.length;i++){const c=out[i],k=km.get(c.t);if(!k||c.lv&&Object.keys(c.lv).length)continue;const tol=c.c*0.0008;const kh=k[1]+off+tol,kl=k[2]+off-tol;if(c.h>kh)c.h=kh;if(c.l<kl)c.l=kl;c.o=Math.min(Math.max(c.o,c.l),c.h);c.c=Math.min(Math.max(c.c,c.l),c.h)}
         S.bnFill=n;S.bnOff=off;S.volSc=sc}}catch(e){S.bnErr=String(e)}
+    for(let i=1;i<out.length;i++){const c=out[i],pc=out[i-1].c;if(!(c.lv&&Object.keys(c.lv).length)){c.o=pc;if(c.h<pc)c.h=pc;if(c.l>pc)c.l=pc;if(c.c>c.h)c.h=c.c;if(c.c<c.l)c.l=c.c}}
     mergeFlow(out);
     setTimeout(()=>{if(tok===S.tok&&!S.demo&&$('stxt').textContent.indexOf('OKX')<0&&$('stxt').textContent.indexOf('مباشر')===0)$('stxt').textContent+=' · '+(S.altSrc?S.altSrc+' ✓'+(S.bnFill||0):'مصدر ثانٍ ✗')},400);
     if(out.length){const live=S.bars.filter(b=>b.t>out[out.length-1].t);S.bars=out.concat(live);S.gotData=true;goLast();dirty=true}
@@ -426,14 +428,14 @@ function connect(){
   ws.onopen=()=>{
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'trades',coin:S.sym.coin}}));
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'l2Book',coin:S.sym.coin}}));
-    setStatus('live','مباشر · Hyperliquid v22');lastMsg=Date.now();
+    setStatus('live','مباشر · Hyperliquid v23');lastMsg=Date.now();
     clearInterval(pingT);pingT=setInterval(()=>{try{ws.send(JSON.stringify({method:'ping'}))}catch(e){}},25000);
     gotTimer=setTimeout(()=>{if(tok===S.tok&&!S.gotData)startDemo(true)},9000);
   };
   ws.onmessage=e=>{
     lastMsg=Date.now();let m;try{m=JSON.parse(e.data)}catch(x){return}
     if(m.channel==='trades'){for(const t of m.data){if(t.coin===S.sym.coin){lastHL=Date.now();hlPx=+t.px;}if(t.coin===S.sym.coin)addTrade(+t.time,+t.px,+t.sz,t.side==='B');else{const o=SYMS.find(x=>x.coin===t.coin);if(o)S.last[o.id]=+t.px}}}
-    else if(m.channel==='l2Book'){const L=m.data.levels;if(L[0][0]&&L[1][0]){midHL=(+L[0][0].px+ +L[1][0].px)/2;lastBook=Date.now();if(!S.demo&&S.bars.length&&Date.now()-lastTick>1000)addTrade(Date.now(),midHL,0,true)}pushBook(L[0].map(x=>[+x.px,+x.sz]),L[1].map(x=>[+x.px,+x.sz]))}
+    else if(m.channel==='l2Book'){const L=m.data.levels;if(L[0][0]&&L[1][0]){midHL=(+L[0][0].px+ +L[1][0].px)/2;lastBook=Date.now();if(!S.demo&&S.bars.length&&midHL!==S._lm){S._lm=midHL;addTrade(Date.now(),midHL,0,true)}}pushBook(L[0].map(x=>[+x.px,+x.sz]),L[1].map(x=>[+x.px,+x.sz]))}
   };
   ws.onclose=()=>{if(tok===S.tok&&!S.demo){setStatus('err','انقطع الاتصال، يعيد...');setTimeout(()=>{if(tok===S.tok)connect()},2500)}};
   ws.onerror=()=>{};
