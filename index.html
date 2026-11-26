@@ -378,7 +378,7 @@ function connect(){
   ws.onopen=()=>{
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'trades',coin:S.sym.coin}}));
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'l2Book',coin:S.sym.coin}}));
-    setStatus('live','مباشر · Hyperliquid v15');lastMsg=Date.now();
+    setStatus('live','مباشر · Hyperliquid v16');lastMsg=Date.now();
     clearInterval(pingT);pingT=setInterval(()=>{try{ws.send(JSON.stringify({method:'ping'}))}catch(e){}},25000);
     gotTimer=setTimeout(()=>{if(tok===S.tok&&!S.gotData)startDemo(true)},9000);
   };
@@ -584,7 +584,7 @@ function drawHeat(){
 let prof=null;
 function buildProfile(){
   const B=S.bars,st=S.sym.step;
-  const binSz=Math.max(st,Math.round((yMax-yMin)/(mainH/3)/st)*st);
+  const binSz=Math.max(st,Math.round((yMax-yMin)/(mainH/4.5)/st)*st);
   const bins=new Map();
   const add=(p,b,s)=>{const k=Math.floor(p/binSz+1e-9);const o=bins.get(k)||[0,0];o[0]+=b;o[1]+=s;bins.set(k,o)};
   for(let i=i0;i<=i1;i++){const b=B[i];if(!b)continue;
@@ -598,7 +598,8 @@ function buildProfile(){
   let va=[0,0];if(arr.length){const pi=arr.findIndex(a=>a.k===poc);let lo=pi,hi=pi,acc=arr[pi].t;
     while(acc<tot*(S.cfg.prof.va/100)&&(lo>0||hi<arr.length-1)){const dn=lo>0?arr[lo-1].t:-1,up=hi<arr.length-1?arr[hi+1].t:-1;if(up>=dn){hi++;acc+=arr[hi].t}else{lo--;acc+=arr[lo].t}}
     va=[arr[lo].p,arr[hi].p+binSz]}
-  prof={arr,binSz,mx,tot,poc:poc!==null?poc*binSz:null,va};
+  let mxs=0;for(const a of arr){if(a.b>mxs)mxs=a.b;if(a.s>mxs)mxs=a.s}
+  prof={arr,binSz,mx,mxs:mxs||1,tot,poc:poc!==null?poc*binSz:null,va};
 }
 function drawProfile(){
   buildProfile();const P=prof;if(!P.arr.length)return;
@@ -608,9 +609,9 @@ function drawProfile(){
     cx.fillStyle='rgba(41,98,255,.06)';cx.fillRect(0,yOf(P.va[1]),plotW,yOf(P.va[0])-yOf(P.va[1]));
     for(const a of P.arr){
       const y1=yOf(a.p+P.binSz),y0=yOf(a.p),h=Math.max(1,y0-y1-(y0-y1>5?1:0));
-      const wb=a.b/P.mx*pw,ws=a.s/P.mx*pw;
-      cx.fillStyle='rgba(38,166,154,.55)';cx.fillRect(plotW-wb,y1,wb,h);
-      cx.fillStyle='rgba(239,83,80,.55)';cx.fillRect(plotW-wb-ws,y1,ws,h);
+      const wb=a.b/P.mxs*pw,ws=a.s/P.mxs*pw,hh=h/2;
+      cx.fillStyle='rgba(38,166,154,.75)';cx.fillRect(plotW-wb,y1,wb,Math.max(1,hh-.25));
+      cx.fillStyle='rgba(239,83,80,.75)';cx.fillRect(plotW-ws,y1+hh+.25,ws,Math.max(1,hh-.25));
     }
     if(P.poc!==null){const y=yOf(P.poc+P.binSz/2);cx.strokeStyle='#ffd54f';cx.setLineDash([3,3]);cx.lineWidth=1;cx.beginPath();cx.moveTo(0,y);cx.lineTo(plotW,y);cx.stroke();cx.setLineDash([])}
   }
