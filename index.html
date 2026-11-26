@@ -378,7 +378,7 @@ function connect(){
   ws.onopen=()=>{
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'trades',coin:S.sym.coin}}));
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'l2Book',coin:S.sym.coin}}));
-    setStatus('live','مباشر · Hyperliquid v16');lastMsg=Date.now();
+    setStatus('live','مباشر · Hyperliquid v17');lastMsg=Date.now();
     clearInterval(pingT);pingT=setInterval(()=>{try{ws.send(JSON.stringify({method:'ping'}))}catch(e){}},25000);
     gotTimer=setTimeout(()=>{if(tok===S.tok&&!S.gotData)startDemo(true)},9000);
   };
@@ -636,11 +636,24 @@ function drawSeries(){
     const b=B[i],x=xOf(i),up=b.c>=b.o,col=up?GRN:RED;
     if(S.ct==='fp'&&bw>=46){drawFP(b,x,i);continue}
     cx.strokeStyle=col;cx.fillStyle=col;cx.lineWidth=1;
-    const xc=x,wk=Math.max(1,Math.round(bw>=6?1.4:1));cx.lineWidth=wk;
-    cx.beginPath();cx.moveTo(xc,yOf(b.h));cx.lineTo(xc,yOf(b.l));cx.stroke();
-    if(S.ct==='bar'){cx.beginPath();cx.moveTo(x-body/2,yOf(b.o));cx.lineTo(x,yOf(b.o));cx.moveTo(x,yOf(b.c));cx.lineTo(x+body/2,yOf(b.c));cx.stroke()}
-    else{const y0=yOf(Math.max(b.o,b.c)),y1=yOf(Math.min(b.o,b.c));cx.fillRect(x-body/2,y0,body,Math.max(1,y1-y0))}
+    if(S.ct==='bar'){cx.lineWidth=Math.max(1,bw>=6?1.4:1);cx.beginPath();cx.moveTo(x,yOf(b.h));cx.lineTo(x,yOf(b.l));cx.moveTo(x-body/2,yOf(b.o));cx.lineTo(x,yOf(b.o));cx.moveTo(x,yOf(b.c));cx.lineTo(x+body/2,yOf(b.c));cx.stroke();continue}
+    // رسم الشموع بنفس خوارزمية Lightweight Charts (بكسلات الجهاز، أرقام صحيحة)
+    const pr=DPR*UK,xd=Math.round(x*pr);
+    let ww=Math.max(1,Math.min(Math.floor(pr),Math.floor(bw*pr)));
+    let bwd=lwcBodyW(bw,pr);if(bwd>=2&&ww%2!==bwd%2)bwd--;
+    const yh=Math.round(yOf(b.h)*pr),yl=Math.round(yOf(b.l)*pr);
+    let yt=Math.round(yOf(Math.max(b.o,b.c))*pr),yb=Math.round(yOf(Math.min(b.o,b.c))*pr);if(yb<=yt)yb=yt+1;
+    cx.save();cx.setTransform(1,0,0,1,0,0);
+    cx.fillRect(xd-Math.floor(ww/2),yh,ww,Math.max(1,yl-yh));
+    cx.fillRect(xd-Math.floor(bwd/2),yt,bwd,yb-yt);
+    cx.restore();
   }
+}
+function lwcBodyW(bs,pr){
+  if(bs>=2.5&&bs<=4)return Math.floor(3*pr);
+  const k=1-0.2*Math.atan(Math.max(4,bs)-4)/(Math.PI*0.5);
+  const r=Math.floor(bs*k*pr),sc=Math.floor(bs*pr);
+  return Math.max(Math.floor(pr),Math.min(r,sc));
 }
 function drawFP(b,x,i){
   const st=S.sym.step,pxStep=Math.abs(yOf(0)-yOf(st));
