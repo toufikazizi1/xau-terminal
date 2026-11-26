@@ -279,7 +279,7 @@ function tfMs(){return S.tf*1000}
 function newBar(t,p){return{t,o:p,h:p,l:p,c:p,v:0,bv:0,sv:0,lv:{}}}
 function fillTo(t,p){
   const B=S.bars,ms=tfMs();
-  if(!B.length){B.push(newBar(Math.floor(t/ms)*ms,p));return}
+  if(!B.length){B.push(newBar(bucketT(t,ms),p));return}
   let last=B[B.length-1];
   while(last.t+ms<=t){const nb=newBar(last.t+ms,last.c);B.push(nb);last=nb;if(B.length>6000)B.shift()}
 }
@@ -306,29 +306,38 @@ function pushBook(bids,asks){
   if(L&&t-L.t<1000)return;
   S.snaps.push({t,bids,asks});if(S.snaps.length>4000)S.snaps.shift();dirty=true;
 }
-async function altKlines(iv){
+async function altKlines(iv,pages){
   const x=xsrc(),m=new Map();
-  try{const bar={'1m':'1m','5m':'5m','15m':'15m','1h':'1H','4h':'4H','1d':'1D'}[iv];
-    const r=await fetch('https://www.okx.com/api/v5/market/candles?instId='+x.ok+'&bar='+bar+'&limit=300');const j=await r.json();
-    if(j&&Array.isArray(j.data)&&j.data.length){for(const k of j.data)m.set(+k[0],[+k[1],+k[2],+k[3],+k[4],+k[5],null]);S.altSrc='OKX'}}catch(e){S.bnErr=String(e)}
-  if(!m.size){try{const iv2={'1m':'1m','5m':'5m','15m':'15m','1h':'1h','4h':'4h','1d':'1d'}[iv];
-    const r=await fetch('https://api.gateio.ws/api/v4/futures/usdt/candlesticks?contract='+(x.ok.replace('-USDT-SWAP','')+'_USDT')+'&interval='+iv2+'&limit=300');const j=await r.json();
-    if(Array.isArray(j)&&j.length){for(const k of j)m.set(+k.t*1000,[+k.o,+k.h,+k.l,+k.c,+k.v,null]);S.altSrc='Gate'}}catch(e){}}
+  try{const bar={'1m':'1m','3m':'3m','5m':'5m','15m':'15m','30m':'30m','1h':'1H','2h':'2H','4h':'4H','12h':'12H','1d':'1D','3d':'3D','1w':'1W','1M':'1M'}[iv];
+    if(bar){let after='';for(let pg=0;pg<(pages||1);pg++){
+      const r=await fetch('https://www.okx.com/api/v5/market/candles?instId='+x.ok+'&bar='+bar+'&limit=300'+(after?'&after='+after:''));const j=await r.json();
+      if(!(j&&Array.isArray(j.data)&&j.data.length))break;
+      for(const k of j.data)m.set(+k[0],[+k[1],+k[2],+k[3],+k[4],+k[5],null]);S.altSrc='OKX';after=j.data[j.data.length-1][0]}}}catch(e){S.bnErr=String(e)}
+  if(!m.size){try{const iv2={'1m':'1m','5m':'5m','15m':'15m','30m':'30m','1h':'1h','4h':'4h','8h':'8h','1d':'1d','1w':'7d'}[iv];
+    if(iv2){const r=await fetch('https://api.gateio.ws/api/v4/futures/usdt/candlesticks?contract='+(x.ok.replace('-USDT-SWAP','')+'_USDT')+'&interval='+iv2+'&limit=1000');const j=await r.json();
+    if(Array.isArray(j)&&j.length){for(const k of j)m.set(+k.t*1000,[+k.o,+k.h,+k.l,+k.c,+k.v,null]);S.altSrc='Gate'}}}catch(e){}}
   return m;
 }
+async function altAgg(iv,bsec,ms,pages){
+  const m=await altKlines(iv,pages);if(!m.size||bsec*1000===ms)return m;
+  const ks=[...m.keys()].sort((a,b)=>a-b),out=new Map();let cur=null,ct=-1;
+  for(const t of ks){const k=m.get(t),bt=bucketT(t,ms);
+    if(bt!==ct){ct=bt;cur=[k[0],k[1],k[2],k[3],k[4],null];out.set(bt,cur)}else{if(k[1]>cur[1])cur[1]=k[1];if(k[2]<cur[2])cur[2]=k[2];cur[3]=k[3];cur[4]+=k[4]}}
+  return out}
 async function loadHistory(){
-  const iv=HLINT[S.tf];if(!iv)return;
-  const tok=S.tok;
+  const bs=baseFor(S.tf);if(!bs)return;const iv=bs[1],bsec=bs[0];
+  const tok=S.tok,ms=tfMs();
   try{
     const end=Date.now(),start=end-420*S.tf*1000;
     const r=await fetch('https://api.hyperliquid.xyz/info',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'candleSnapshot',req:{coin:S.sym.coin,interval:iv,startTime:start,endTime:end}})});
     const j=await r.json();if(tok!==S.tok||!Array.isArray(j))return;
-    const out=[];
+    let out=[];
     for(const c of j){const o=+c.o,h=+c.h,l=+c.l,cl=+c.c,v=+c.v;const rg=h-l;const bf=rg>0?(cl-l)/rg:0.5;
       out.push({t:+c.t,o,h,l,c:cl,v,bv:v*bf,sv:v*(1-bf),lv:{},est:true})}
+    if(bsec!==S.tf)out=aggregate(out,ms);
     const fl=[];for(const c of out){if(fl.length){let p=fl[fl.length-1];while(p.t+tfMs()<c.t&&fl.length<8000){p=newBar(p.t+tfMs(),p.c);p.est=true;p.flat=true;fl.push(p)}}fl.push(c)}
     out.length=0;for(const c of fl)out.push(c);
-    try{const km=await altKlines(iv);
+    try{const km=await altAgg(iv,bsec,ms,3);
       if(km&&km.size){
         const df=[];for(const c of out){const k=km.get(c.t);if(k&&!c.flat&&c.v>0)df.push(c.c-k[3])}
         df.sort((a,b)=>a-b);let off=df.length?df[df.length>>1]:null;
@@ -389,7 +398,7 @@ function connect(){
   ws.onopen=()=>{
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'trades',coin:S.sym.coin}}));
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'l2Book',coin:S.sym.coin}}));
-    setStatus('live','مباشر · Hyperliquid v19');lastMsg=Date.now();
+    setStatus('live','مباشر · Hyperliquid v20');lastMsg=Date.now();
     clearInterval(pingT);pingT=setInterval(()=>{try{ws.send(JSON.stringify({method:'ping'}))}catch(e){}},25000);
     gotTimer=setTimeout(()=>{if(tok===S.tok&&!S.gotData)startDemo(true)},9000);
   };
@@ -873,12 +882,23 @@ const IC={
  bar:'<path d="M7 4v16M4 8h3M7 14h3M17 4v16M14 6h3M17 16h3"/>'
 };
 function svg(n){return '<svg viewBox="0 0 24 24">'+IC[n]+'</svg>'}
-const TFN={10:'10 ث',30:'30 ث',60:'1 د',300:'5 د',900:'15 د',3600:'1 س',14400:'4 س',86400:'1 ي'};
+
 const TOOLN={t:'خط اتجاه',a:'سهم',h:'خط أفقي',v:'خط عمودي',r:'مستطيل',f:'فيبوناتشي',m:'قياس',x:'نص'};
 const SHN={vol:'الحجم (Volume)',delta:'دلتا (Delta)',prof:'فوليوم بروفايل + POC',hvn:'HVN مستويات الحجم',heat:'هيت ماب السيولة',bigt:'كرات الصفقات الكبيرة'};
 const CTN={candle:'شموع',bar:'أعمدة OHLC',line:'خط',fp:'Footprint (أوردر فلو)'};
-HLINT[14400]='4h';HLINT[86400]='1d';
-TFS.push([14400,'4h'],[86400,'1d']);
+const TFN={};
+const ALLTF=[10,30];for(let m=1;m<=20;m++)ALLTF.push(m*60);ALLTF.push(1800,3600,7200,10800,14400,18000,21600,25200,28800,86400,604800,2592000);
+const tfName=t=>t<60?t+' ث':t<3600?(t/60)+' د':t<86400?(t/3600)+' س':t===86400?'1 ي':t===604800?'1 أ':t===2592000?'1 ش':(t/86400)+' ي';
+for(const t of ALLTF)TFN[t]=tfName(t);
+const BASES=[[2592000,'1M'],[604800,'1w'],[259200,'3d'],[86400,'1d'],[43200,'12h'],[28800,'8h'],[14400,'4h'],[7200,'2h'],[3600,'1h'],[1800,'30m'],[900,'15m'],[300,'5m'],[180,'3m'],[60,'1m']];
+function baseFor(tf){for(const b of BASES)if(b[0]<=tf&&tf%b[0]===0)return b;return null}
+const WK0=345600000;
+function bucketT(t,ms){return ms===604800000?Math.floor((t-WK0)/ms)*ms+WK0:Math.floor(t/ms)*ms}
+function aggregate(arr,ms){const out=[];let cur=null;for(const c of arr){const bt=bucketT(c.t,ms);
+  if(!cur||cur.t!==bt){cur={t:bt,o:c.o,h:c.h,l:c.l,c:c.c,v:c.v,bv:c.bv,sv:c.sv,lv:{},est:true};out.push(cur)}
+  else{if(c.h>cur.h)cur.h=c.h;if(c.l<cur.l)cur.l=c.l;cur.c=c.c;cur.v+=c.v;cur.bv+=c.bv;cur.sv+=c.sv}}return out}
+S.tfs=(()=>{try{const a=JSON.parse(localStorage.getItem('xt_tfs')||'null');if(Array.isArray(a)&&a.length)return a}catch(e){}return[10,30,60,300,900,3600,14400,86400]})();
+function saveTfs(){try{localStorage.setItem('xt_tfs',JSON.stringify(S.tfs))}catch(e){}}
 
 /* ===== التنقل والرجوع ===== */
 let curSheet=null,sheetStack=[],pushed=false;
@@ -915,7 +935,17 @@ function setTool(k){
 }
 $('toolPill').onclick=()=>setTool('cross');
 
-function sheetTF(){openSheet('الفريم الزمني',b=>{for(const[s]of TFS)li(b,'<span class="g">'+(TFN[s]||s)+'</span>',()=>{S.tf=s;save();syncChips();closeSheet();reset()},s===S.tf)})}
+function sheetTF(){openSheet('الفريم الزمني',b=>{
+  for(const s0 of ALLTF.filter(t=>S.tfs.includes(t)||t===S.tf))li(b,'<span class="g">'+(TFN[s0]||s0)+'</span>',()=>{S.tf=s0;save();syncChips();closeSheet();reset()},s0===S.tf);
+  const nb=document.createElement('button');nb.className='btn';nb.style.cssText='width:100%;margin-top:12px;padding:14px';nb.textContent='⚙ إعدادات الفريمات (إضافة وحذف)';nb.onclick=sheetTFSet;b.appendChild(nb)})}
+function sheetTFSet(){openSheet('إعدادات الفريمات',b=>{
+  const d0=document.createElement('div');d0.className='small';d0.style.padding='4px 2px 10px';d0.textContent='اختر الفريمات اللي تظهر في القائمة:';b.appendChild(d0);
+  const grp=[['ثواني',t=>t<60],['دقائق',t=>t>=60&&t<=1200],['دقائق / ساعات',t=>t>1200&&t<86400],['أيام وأكثر',t=>t>=86400]];
+  for(const[nm,f]of grp){sec(b,nm);const g=document.createElement('div');g.style.cssText='display:flex;flex-wrap:wrap;gap:8px';b.appendChild(g);
+    for(const t of ALLTF.filter(f)){const x=document.createElement('button');x.className='seg-b';const on=S.tfs.includes(t);
+      x.style.cssText='min-width:74px;padding:12px 8px;border-radius:10px;border:1px solid '+(on?'#2962ff':'#333')+';background:'+(on?'#2962ff':'#1b1d24')+';color:#fff;font:700 15px inherit;cursor:pointer';x.textContent=TFN[t];
+      x.onclick=()=>{if(S.tfs.includes(t)){if(S.tfs.length<=1)return;S.tfs=S.tfs.filter(z=>z!==t)}else S.tfs.push(t);S.tfs.sort((a,b)=>a-b);saveTfs();sheetTFSet()};g.appendChild(x)}}
+})}
 function sheetSym(){openSheet('الرمز',b=>{
   const inp=document.createElement('input');inp.type='text';inp.placeholder='بحث...';b.appendChild(inp);
   const box=document.createElement('div');b.appendChild(box);
@@ -1103,7 +1133,7 @@ async function pollPrices(){if(S.demo||!metaOK)return;
 setInterval(pollPrices,4000);
 let polling=false;
 async function pollAlt(){if(S.demo||polling||!S.bars.length||Date.now()-lastHL<5000)return;polling=true;
-  try{const iv=HLINT[S.tf];if(!iv)return;const tok=S.tok;const km=await altKlines(iv);if(tok!==S.tok||!km.size)return;
+  try{const bs=baseFor(S.tf);if(!bs)return;const tok=S.tok;const km=await altAgg(bs[1],bs[0],tfMs(),1);if(tok!==S.tok||!km.size)return;
     const B=S.bars;let off=S.bnOff;if(off==null){const lb=B[B.length-1],kk=km.get(lb.t);if(!kk)return;off=lb.c-kk[3];S.bnOff=off}
     for(let i=Math.max(0,B.length-4);i<B.length;i++){const b=B[i],k=km.get(b.t);if(!k)continue;if(b.lv&&Object.keys(b.lv).length)continue;
       b.o=k[0]+off;b.h=k[1]+off;b.l=k[2]+off;b.c=k[3]+off;if(!b.v)b.v=k[4]*(S.volSc||1);if(b.bv+b.sv===0){b.bv=b.v/2;b.sv=b.v/2}b.est=true;S.last[S.sym.id]=b.c}
@@ -1168,7 +1198,7 @@ function init(){
 let lastRun=0;
 
 /* ================= التداول التجريبي ================= */
-const PT0=()=>({bal:10000,pos:[],ord:[],hist:[],net:0,resets:0,seq:1});
+const PT0=(a)=>({bal:a||10000,dep:a||10000,pos:[],ord:[],hist:[],net:0,resets:0,seq:1});
 S.pt=(()=>{try{return Object.assign(PT0(),JSON.parse(localStorage.getItem('xt_pt')||'{}'))}catch(e){return PT0()}})();
 function ptSave(){try{localStorage.setItem('xt_pt',JSON.stringify(S.pt))}catch(e){}}
 const FEE=0.0003;
@@ -1244,8 +1274,14 @@ function openTicket(side){
 function sheetAcc(){openSheet('حسابي',b=>{
   const P=S.pt,e=ptEquity();
   const sm=document.createElement('div');sm.className='prow';
-  sm.innerHTML='<div class="r"><span>الرصيد الكلي (Equity)</span><b>'+fm(e.eq)+'$</b></div><div class="r"><span>المتاح</span><b>'+fm(P.bal)+'$</b></div><div class="r"><span>الربح/الخسارة المفتوحة</span><b class="'+(e.u>=0?'pnl-up':'pnl-dn')+'">'+fm(e.u)+'$</b></div><div class="r"><span>صافي الأرباح المحققة</span><b class="'+(P.net>=0?'pnl-up':'pnl-dn')+'">'+fm(P.net)+'$</b></div><div class="r"><span>النقاط</span><b>'+fm(Math.max(0,P.net),0)+'</b></div><div class="r"><span>مرات إعادة الحساب</span><b>'+P.resets+'</b></div>';
+  sm.innerHTML='<div class="r"><span>الرصيد الكلي (Equity)</span><b>'+fm(e.eq)+'$</b></div><div class="r"><span>المتاح</span><b>'+fm(P.bal)+'$</b></div><div class="r"><span>الربح/الخسارة المفتوحة</span><b class="'+(e.u>=0?'pnl-up':'pnl-dn')+'">'+fm(e.u)+'$</b></div><div class="r"><span>إجمالي الإيداعات</span><b>'+fm(P.dep)+'$</b></div><div class="r"><span>صافي الأرباح المحققة</span><b class="'+(P.net>=0?'pnl-up':'pnl-dn')+'">'+fm(P.net)+'$</b></div><div class="r"><span>النقاط</span><b>'+fm(Math.max(0,P.net),0)+'</b></div><div class="r"><span>مرات إعادة الحساب</span><b>'+P.resets+'</b></div>';
   b.appendChild(sm);
+  const dp=document.createElement('div');dp.className='prow';
+  dp.innerHTML='<div class="r"><b>إيداع وهمي</b><span class="small">إجمالي الإيداعات: '+fm(P.dep)+'$</span></div><div class="fld" style="margin:0"><input type="number" id="depA" placeholder="المبلغ بالدولار" step="any" style="flex:1;width:auto"><button class="btn on" id="depB" style="padding:12px 18px">إيداع</button></div><div class="seg" style="margin:0">'+[10,50,100,500,1000].map(v=>'<button data-v="'+v+'">+'+v+'</button>').join('')+'</div>';
+  const doDep=v=>{if(!(v>0)||v>1e9){toast('أدخل مبلغاً صحيحاً');return}P.bal+=v;P.dep+=v;P.blownShown=false;ptSave();ptUI();toast('تم إيداع '+fm(v)+'$ (وهمي)');sheetAcc()};
+  dp.querySelector('#depB').onclick=()=>doDep(+dp.querySelector('#depA').value);
+  dp.querySelectorAll('.seg button').forEach(x=>x.onclick=()=>doDep(+x.dataset.v));
+  b.appendChild(dp);
   sec(b,'المراكز المفتوحة ('+P.pos.length+')');
   for(const p of P.pos){const px=ptPx(p.sym)||p.entry,u=ptPnl(p,px),d=document.createElement('div');d.className='prow';
     d.innerHTML='<div class="r"><b>'+(p.side==='buy'?'🟢 شراء ':'🔴 بيع ')+p.sym+' · '+p.lev+'x</b><b class="'+(u>=0?'pnl-up':'pnl-dn')+'">'+(u>=0?'+':'')+fm(u)+'$</b></div><div class="r"><span>دخول '+fm(p.entry,4)+'</span><span>الآن '+fm(px,4)+'</span></div><div class="r"><span>SL '+(p.sl?fm(p.sl,4):'-')+'</span><span>TP '+(p.tp?fm(p.tp,4):'-')+'</span></div><div class="r"><button class="btn" data-a="sl">SL/TP</button><button class="btn" data-a="c" style="color:#ef5350">إغلاق</button></div>';
@@ -1256,8 +1292,8 @@ function sheetAcc(){openSheet('حسابي',b=>{
   sec(b,'آخر الصفقات');
   for(const h of P.hist.slice(0,15)){const d=document.createElement('div');d.className='prow';d.innerHTML='<div class="r"><span>'+(h.side==='buy'?'شراء ':'بيع ')+h.sym+' · '+h.why+'</span><b class="'+(h.net>=0?'pnl-up':'pnl-dn')+'">'+(h.net>=0?'+':'')+fm(h.net)+'$</b></div>';b.appendChild(d)}
   if(!P.hist.length){const d=document.createElement('div');d.className='small';d.style.padding='8px';d.textContent='لا توجد صفقات بعد';b.appendChild(d)}
-  const rb=document.createElement('button');rb.className='btn';rb.style.cssText='width:100%;margin-top:14px;padding:14px;color:#ef5350';rb.textContent='إعادة الحساب من جديد (10,000$)';
-  rb.onclick=()=>{if(confirm('سيتم مسح المراكز والأرباح والبدء من 10,000$. متأكد؟')){const r=P.resets+1;S.pt=PT0();S.pt.resets=r;ptSave();dirty=true;ptUI();sheetAcc()}};
+  const rb=document.createElement('button');rb.className='btn';rb.style.cssText='width:100%;margin-top:14px;padding:14px;color:#ef5350';rb.textContent='إعادة الحساب من جديد بمبلغ تختاره';
+  rb.onclick=()=>{const a=prompt('المبلغ الابتدائي للحساب الجديد (دولار):',String(P.dep||1000));if(a===null)return;const v=+a;if(!(v>0)){toast('مبلغ غير صحيح');return}if(confirm('سيتم مسح المراكز والأرباح والبدء بـ '+fm(v)+'$. متأكد؟')){const r=P.resets+1;S.pt=PT0(v);S.pt.resets=r;ptSave();dirty=true;ptUI();sheetAcc()}};
   b.appendChild(rb)})}
 $('ptBuy').onclick=()=>openTicket('buy');$('ptSell').onclick=()=>openTicket('sell');$('ptAcc').onclick=sheetAcc;
 function drawPT(){
