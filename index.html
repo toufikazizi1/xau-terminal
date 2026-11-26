@@ -54,7 +54,8 @@ canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
 #sheet{position:fixed;left:0;right:0;bottom:0;background:var(--pn);border-radius:18px 18px 0 0;z-index:21;max-height:82vh;display:none;flex-direction:column;padding:8px 14px 18px;animation:up .18s ease-out}
 @keyframes up{from{transform:translateY(40px);opacity:.4}to{transform:none;opacity:1}}
 #sheet .hd{width:44px;height:4px;border-radius:2px;background:#555;margin:2px auto 10px}
-#sheet h3{margin:4px 0 10px;font-size:17px;font-weight:600}
+#sheet h3{margin:4px 0 10px;font-size:19px;font-weight:600;display:flex;align-items:center;gap:10px}
+.bk{background:#23262f;border:0;color:#fff;border-radius:12px;width:48px;height:48px;font-size:26px;cursor:pointer;flex:none;display:inline-flex;align-items:center;justify-content:center}
 #sbody{overflow:auto}
 .li{display:flex;align-items:center;gap:10px;padding:12px 6px;border-bottom:1px solid var(--bd);cursor:pointer}
 .li.sel{color:#6ea0ff;font-weight:600}
@@ -114,7 +115,7 @@ html.wide #sheet{left:50%;right:auto;width:560px;transform:translateX(-50%);anim
    </div>
   </section>
   <section class="view" id="vWatch">
-    <div id="wlh">قائمة المراقبة</div>
+    <div id="wlh" style="display:flex;align-items:center;gap:10px"><button class="bk" id="wBack" aria-label="رجوع">➜</button><span>قائمة المراقبة</span></div>
     <div id="wl"></div>
   </section>
  </div>
@@ -126,10 +127,10 @@ html.wide #sheet{left:50%;right:auto;width:560px;transform:translateX(-50%);anim
  </nav>
 </div>
 <div id="back"></div>
-<div id="sheet"><div class="hd"></div><h3 id="stitle"></h3><div id="sbody"></div></div>
+<div id="sheet"><div class="hd"></div><h3><button class="bk" id="sBack" aria-label="رجوع">➜</button><span id="stitle"></span></h3><div id="sbody"></div></div>
 
 <div class="modal" id="mCode"><div class="box">
-  <h3>محرر المؤشر (JavaScript)</h3>
+  <h3 style="display:flex;align-items:center;gap:10px"><button class="bk" id="eBack" aria-label="رجوع">➜</button><span>محرر المؤشر (JavaScript)</span></h3>
   <input type="text" id="cName" placeholder="اسم المؤشر">
   <div style="height:8px"></div>
   <textarea id="cText" spellcheck="false"></textarea>
@@ -378,7 +379,7 @@ function connect(){
   ws.onopen=()=>{
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'trades',coin:S.sym.coin}}));
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'l2Book',coin:S.sym.coin}}));
-    setStatus('live','مباشر · Hyperliquid v17');lastMsg=Date.now();
+    setStatus('live','مباشر · Hyperliquid v18');lastMsg=Date.now();
     clearInterval(pingT);pingT=setInterval(()=>{try{ws.send(JSON.stringify({method:'ping'}))}catch(e){}},25000);
     gotTimer=setTimeout(()=>{if(tok===S.tok&&!S.gotData)startDemo(true)},9000);
   };
@@ -869,12 +870,24 @@ const CTN={candle:'شموع',bar:'أعمدة OHLC',line:'خط',fp:'Footprint (أ
 HLINT[14400]='4h';HLINT[86400]='1d';
 TFS.push([14400,'4h'],[86400,'1d']);
 
-function openSheet(title,fn){
+/* ===== التنقل والرجوع ===== */
+let curSheet=null,sheetStack=[],pushed=false;
+function ensureHist(){if(!pushed){try{history.pushState({xt:1},'')}catch(e){}pushed=true}}
+function layersOpen(){return $('mCode').classList.contains('show')||$('sheet').style.display==='flex'||$('vWatch').classList.contains('on')}
+function openSheet(title,fn,fromBack){
+  if(!fromBack&&curSheet&&curSheet.title!==title&&$('sheet').style.display==='flex')sheetStack.push(curSheet);
+  curSheet={title,fn};
   $('stitle').textContent=title;const b=$('sbody');b.innerHTML='';fn(b);
-  $('back').style.display='block';$('sheet').style.display='flex';
+  $('back').style.display='block';$('sheet').style.display='flex';ensureHist();
 }
-function closeSheet(){$('back').style.display='none';$('sheet').style.display='none'}
-$('back').onclick=closeSheet;
+function closeSheet(){sheetStack=[];curSheet=null;$('back').style.display='none';$('sheet').style.display='none'}
+function goBack(){
+  if($('mCode').classList.contains('show')){$('mCode').classList.remove('show');return true}
+  if($('sheet').style.display==='flex'){const p=sheetStack.pop();if(p)openSheet(p.title,p.fn,true);else closeSheet();return true}
+  if($('vWatch').classList.contains('on')){showView('chart');return true}
+  return false}
+addEventListener('popstate',()=>{pushed=false;if(layersOpen()){goBack();if(layersOpen())ensureHist()}else{history.back()}});
+$('back').onclick=closeSheet;$('sBack').onclick=goBack;$('wBack').onclick=goBack;$('eBack').onclick=goBack;
 function li(b,html,cb,sel){const d=document.createElement('div');d.className='li'+(sel?' sel':'');d.innerHTML=html;d.onclick=cb;b.appendChild(d);return d}
 function tile(b,ic,txt,cb){const d=document.createElement('div');d.className='tile';d.innerHTML=svg(ic)+'<span>'+txt+'</span>';d.onclick=cb;b.appendChild(d);return d}
 function grid(b,cls){const g=document.createElement('div');g.className='grid '+(cls||'');b.appendChild(g);return g}
@@ -1058,7 +1071,7 @@ function showView(v){
   if(v==='menu'){sheetMenu();return}
   $('vChart').classList.toggle('on',v==='chart');$('vWatch').classList.toggle('on',v==='watch');
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
-  if(v==='watch')buildWatch();else{resize();dirty=true}
+  if(v==='watch'){buildWatch();ensureHist()}else{resize();dirty=true}
 }
 async function hl(b){const r=await fetch('https://api.hyperliquid.xyz/info',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});return r.json()}
 function stepOf(px,szd){const sig=Math.pow(10,Math.floor(Math.log10(px))-4);const mx=Math.pow(10,-(6-szd));return Math.max(sig,mx)}
@@ -1098,7 +1111,7 @@ async function loadDayOpen(){await loadSymbols();if(metaOK)return;
 let editing=null;
 function openEditor(ind){
   editing=ind;$('cName').value=ind?ind.name:'مؤشري';$('cText').value=ind?ind.code:TEMPLATE;$('cParams').value=ind?JSON.stringify(ind.params||{}):'{}';
-  $('err').textContent='';$('cDel').style.display=ind&&!ind.builtin?'':'none';$('mCode').classList.add('show');
+  $('err').textContent='';$('cDel').style.display=ind&&!ind.builtin?'':'none';$('mCode').classList.add('show');ensureHist();
 }
 function saveEditor(){
   let params={};try{params=JSON.parse($('cParams').value||'{}')}catch(e){$('err').textContent='JSON الإعدادات غير صحيح';return}
