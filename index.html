@@ -65,7 +65,7 @@ canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
 #sheet .hd{width:44px;height:4px;border-radius:2px;background:#555;margin:2px auto 10px}
 #sheet h3{margin:4px 0 10px;font-size:19px;font-weight:600;display:flex;align-items:center;gap:10px}
 .bk{background:#23262f;border:0;color:#fff;border-radius:12px;width:48px;height:48px;font-size:26px;cursor:pointer;flex:none;display:inline-flex;align-items:center;justify-content:center}
-#sbody{overflow:auto}
+#sbody{overflow-y:auto;min-height:0;flex:1 1 auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y}
 .li{display:flex;align-items:center;gap:10px;padding:12px 6px;border-bottom:1px solid var(--bd);cursor:pointer}
 .li.sel{color:#6ea0ff;font-weight:600}
 .li .g{flex:1}
@@ -428,7 +428,7 @@ function connect(){
   ws.onopen=()=>{
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'trades',coin:S.sym.coin}}));
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'l2Book',coin:S.sym.coin}}));
-    setStatus('live','مباشر · Hyperliquid v23');lastMsg=Date.now();
+    setStatus('live','مباشر · Hyperliquid v24');lastMsg=Date.now();
     clearInterval(pingT);pingT=setInterval(()=>{try{ws.send(JSON.stringify({method:'ping'}))}catch(e){}},25000);
     gotTimer=setTimeout(()=>{if(tok===S.tok&&!S.gotData)startDemo(true)},9000);
   };
@@ -967,6 +967,7 @@ function goBack(){
   if($('vWatch').classList.contains('on')){showView('chart');return true}
   return false}
 addEventListener('popstate',()=>{pushed=false;if(layersOpen()){goBack();if(layersOpen())ensureHist()}else{history.back()}});
+['touchstart','touchmove','scroll','wheel','pointerdown'].forEach(ev=>$('sheet').addEventListener(ev,()=>{S._tch=Date.now()},{passive:true,capture:true}));
 $('back').onclick=closeSheet;$('sBack').onclick=goBack;$('wBack').onclick=goBack;$('eBack').onclick=goBack;
 function li(b,html,cb,sel){const d=document.createElement('div');d.className='li'+(sel?' sel':'');d.innerHTML=html;d.onclick=cb;b.appendChild(d);return d}
 function tile(b,ic,txt,cb){const d=document.createElement('div');d.className='tile';d.innerHTML=svg(ic)+'<span>'+txt+'</span>';d.onclick=cb;b.appendChild(d);return d}
@@ -1283,7 +1284,7 @@ function ptCheck(){
 function ptUI(){const e=ptEquity();$('ptEq').textContent=fm(e.eq,0)+'$';const u=e.u;
   $('ptPnl').innerHTML=P_n()+'<span class="'+(u>=0?'pnl-up':'pnl-dn')+'" style="color:'+(u>=0?'#9be7df':'#ffb3b1')+'">'+(S.pt.pos.length?(u>=0?'+':'')+fm(u)+'$':'حسابي')+'</span>';
   const px=ptPx(S.sym.id);$('ptBuyP').textContent=px?fm(px,S.sym.dec):'';$('ptSellP').textContent=px?fm(px,S.sym.dec):'';
-  if(curSheet&&$('sheet').style.display==='flex'&&curSheet.title==='حسابي'&&Date.now()-(S._ptr||0)>2000){S._ptr=Date.now();const sb=$('sbody'),t1=sb.scrollTop,t2=$('sheet').scrollTop;openSheet('حسابي',curSheet.fn,true);sb.scrollTop=t1;$('sheet').scrollTop=t2}}
+  if(curSheet&&$('sheet').style.display==='flex'&&curSheet.title==='حسابي'&&Date.now()-(S._ptr||0)>2000&&Date.now()-(S._tch||0)>4000&&!(document.activeElement&&document.activeElement.tagName==='INPUT')){S._ptr=Date.now();const sb=$('sbody'),t1=sb.scrollTop,t2=$('sheet').scrollTop;openSheet('حسابي',curSheet.fn,true);sb.scrollTop=t1;$('sheet').scrollTop=t2}}
 function P_n(){return ''}
 setInterval(ptCheck,500);
 function openTicket(side){
