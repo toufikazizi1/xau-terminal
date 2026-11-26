@@ -60,7 +60,7 @@ canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
 #nav button.on{color:#fff}
 /* sheets */
 #back{position:fixed;inset:0;background:#0009;display:none;z-index:20}
-#sheet{position:fixed;left:0;right:0;bottom:0;background:var(--pn);border-radius:18px 18px 0 0;z-index:21;max-height:82vh;display:none;flex-direction:column;padding:8px 14px 18px;animation:up .18s ease-out}
+#sheet{position:fixed;left:0;right:0;bottom:0;background:var(--pn);border-radius:18px 18px 0 0;z-index:21;max-height:calc(var(--vh,1vh)*82);display:none;flex-direction:column;padding:8px 14px 18px;animation:up .18s ease-out}
 @keyframes up{from{transform:translateY(40px);opacity:.4}to{transform:none;opacity:1}}
 #sheet .hd{width:44px;height:4px;border-radius:2px;background:#555;margin:2px auto 10px}
 #sheet h3{margin:4px 0 10px;font-size:19px;font-weight:600;display:flex;align-items:center;gap:10px}
@@ -82,7 +82,7 @@ input[type=text],input[type=number]{background:#0e0e10;color:var(--tx);border:1p
 textarea{width:100%;height:260px;background:#0a0a0c;color:#d1d4dc;border:1px solid var(--bd);border-radius:8px;padding:8px;font:12px/1.5 Consolas,Menlo,monospace;direction:ltr;tab-size:2}
 .modal{position:fixed;inset:0;background:#000b;display:none;align-items:center;justify-content:center;z-index:30}
 .modal.show{display:flex}
-.box{background:var(--pn);border:1px solid var(--bd);border-radius:14px;width:min(600px,95vw);max-height:92vh;overflow:auto;padding:14px}
+.box{background:var(--pn);border:1px solid var(--bd);border-radius:14px;width:min(600px,95vw);max-height:calc(var(--vh,1vh)*92);overflow:auto;padding:14px}
 .box h3{margin:0 0 10px}
 #err{color:#ef5350;font-size:12px;min-height:16px;white-space:pre-wrap;margin-top:6px;direction:ltr;text-align:left}
 .small{color:var(--mu);font-size:11px}
@@ -157,7 +157,7 @@ html.wide #sheet{left:50%;right:auto;width:560px;transform:translateX(-50%);anim
 <script>
 'use strict';
 let UK=1;
-function fitScale(){const w=innerWidth,h=innerHeight;UK=(navigator.maxTouchPoints>0&&w>560&&w<1500)?w/412:1;
+function fitScale(){const w=innerWidth,h=innerHeight;document.documentElement.style.setProperty('--vh',(h/Math.max(1,((navigator.maxTouchPoints>0&&w>560&&w<1500)?w/412:1))/100)+'px');UK=(navigator.maxTouchPoints>0&&w>560&&w<1500)?w/412:1;
   document.documentElement.classList.toggle('wide',UK===1&&w>=900);const b=document.body.style;if(UK>1){b.width=(w/UK)+'px';b.height=(h/UK)+'px';b.transform='scale('+UK+')';b.transformOrigin='0 0';b.position='absolute';b.left='0';b.top='0'}else{b.width='';b.height='';b.transform='';b.position='';}}
 fitScale();
 /* ================= الإعدادات ================= */
@@ -428,7 +428,7 @@ function connect(){
   ws.onopen=()=>{
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'trades',coin:S.sym.coin}}));
     ws.send(JSON.stringify({method:'subscribe',subscription:{type:'l2Book',coin:S.sym.coin}}));
-    setStatus('live','مباشر · Hyperliquid v24');lastMsg=Date.now();
+    setStatus('live','مباشر · Hyperliquid v25');lastMsg=Date.now();
     clearInterval(pingT);pingT=setInterval(()=>{try{ws.send(JSON.stringify({method:'ping'}))}catch(e){}},25000);
     gotTimer=setTimeout(()=>{if(tok===S.tok&&!S.gotData)startDemo(true)},9000);
   };
